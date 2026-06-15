@@ -44,7 +44,18 @@ Supported `match` modes:
 3. Move to `bench/tasks/sample.jsonl` only after the smoke run is stable
 4. Compare `solo.accuracy` vs `fusion.accuracy` in the output JSON
 
+Each result also carries `total_tokens` and `total_cost_usd` per mode, so you can weigh any
+accuracy lift against the extra spend of fanning out to a panel.
+
 The sample set is small (20 tasks) and intended as a smoke benchmark, not a frontier eval.
+
+## Running in CI
+
+The `Benchmark` GitHub Actions workflow (`.github/workflows/bench.yml`) runs this head-to-head
+against the repo's `OPENROUTER_API_KEY` secret, so the key never touches a local session. It is
+**manual dispatch only** (Actions tab → Benchmark → Run workflow) because it spends real credits.
+Defaults are the cheap smoke set with `--max-tokens 32`; results are published as a job summary
+table and a `bench-results` artifact.
 
 ## Security
 

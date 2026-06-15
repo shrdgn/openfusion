@@ -1,0 +1,116 @@
+name: Benchmark
+
+# Runs the self-fusion vs solo head-to-head against a live OpenRouter key.
+# Manual dispatch only: this spends real provider credits. Defaults are the
+# cheap smoke set with a low token ceiling.
+
+on:
+  workflow_dispatch:
+    inputs:
+      config:
+        description: "openfusion config file"
+        default: "openfusion.dev.yaml.example"
+        type: string
+      tasks:
+        description: "JSONL task file"
+        default: "bench/tasks/smoke.jsonl"
+        type: string
+      max_tokens:
+        description: "Per-call output cap (both solo and fusion)"
+        default: "32"
+        type: string
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    env:
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Verify key is configured
+        run: |
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY secret is not set for this repository."
+            exit 1
+          fi
+
+      - name: Start openfusion
+        run: |
+          OPENFUSION_CONFIG="${{ inputs.config }}" \
+            openfusion --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          echo $! > server.pid
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/healthz > /dev/null; then
+              echo "server ready"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::server did not become healthy"
+          cat server.log
+          exit 1
+
+      - name: Run benchmark
+        run: |
+          mkdir -p bench/results
+          python bench/run.py \
+            --config "${{ inputs.config }}" \
+            --tasks "${{ inputs.tasks }}" \
+            --max-tokens "${{ inputs.max_tokens }}" \
+            --output bench/results/latest.json
+
+      - name: Write job summary
+        if: always()
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import pathlib
+
+          path = pathlib.Path("bench/results/latest.json")
+          if not path.exists():
+              print("No results produced — see the benchmark step logs.")
+              raise SystemExit(0)
+
+          report = json.loads(path.read_text())
+
+          def row(label, s):
+              acc = f"{s['accuracy'] * 100:.1f}% ({s['correct']}/{s['total']})"
+              return (
+                  f"| {label} | {acc} | {s['avg_latency_seconds']:.2f}s "
+                  f"| {s['total_tokens']} | ${s['total_cost_usd']:.4f} |"
+              )
+
+          print("## openfusion benchmark\n")
+          print(f"- Config: `{report['config']}`")
+          print(f"- Tasks: `{report['tasks_file']}`")
+          print(f"- Solo model: `{report['solo_model']}`  Fusion: `{report['fusion_model']}`")
+          print(f"- max_tokens: {report['max_tokens']}\n")
+          print("| Mode | Accuracy | Avg latency | Tokens | Cost |")
+          print("|------|----------|-------------|--------|------|")
+          print(row("Solo", report["solo"]))
+          print(row("Fusion", report["fusion"]))
+          PY
+
+      - name: Stop server
+        if: always()
+        run: |
+          [ -f server.pid ] && kill "$(cat server.pid)" 2>/dev/null || true
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results
+          path: |
+            bench/results/latest.json
+            server.log
+          if-no-files-found: warn
