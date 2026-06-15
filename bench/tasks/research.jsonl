@@ -6,3 +6,35 @@
 {"id": "r6", "prompt": "Explain the CAP theorem and how it informs the design of a globally distributed key-value store. Go beyond 'pick two' and discuss the practical PACELC implications for latency and consistency."}
 {"id": "r7", "prompt": "Compare REST and gRPC for internal microservice communication across performance, streaming, tooling, browser support, and developer experience. When is each the better choice?"}
 {"id": "r8", "prompt": "What are the main strategies for reducing LLM inference cost in production (quantization, distillation, caching, batching, speculative decoding), and what quality and latency trade-offs does each entail?"}
+{"id": "r9", "prompt": "Compare a monolithic GraphQL schema with federated GraphQL for a large org with many backend teams: schema ownership, performance, and operational trade-offs."}
+{"id": "r10", "prompt": "Explain the trade-offs between synchronous request/response and asynchronous message-driven communication in distributed systems, and when each is appropriate."}
+{"id": "r11", "prompt": "Compare row-oriented and column-oriented storage engines for analytical versus transactional workloads, with concrete examples of each."}
+{"id": "r12", "prompt": "What are the trade-offs between strong, eventual, and causal consistency models in distributed databases? Give a realistic use case for each."}
+{"id": "r13", "prompt": "Compare JWT and opaque server-side session tokens for web authentication: security, revocation, statelessness, and operational implications."}
+{"id": "r14", "prompt": "Explain the trade-offs between bcrypt, scrypt, and Argon2 for password hashing, and which parameters matter most in practice."}
+{"id": "r15", "prompt": "Compare client-side rendering, server-side rendering, and static site generation for a content-heavy web app across performance, SEO, and complexity."}
+{"id": "r16", "prompt": "What are the trade-offs between Kafka-style log streaming and a traditional message queue (e.g. RabbitMQ) for an event-driven architecture?"}
+{"id": "r17", "prompt": "Explain the trade-offs between vertical and horizontal scaling for a stateful database, and the techniques that make horizontal scaling viable."}
+{"id": "r18", "prompt": "Compare supervised fine-tuning with preference optimization (RLHF/DPO) for aligning an LLM: data needs, training stability, and resulting behavior."}
+{"id": "r19", "prompt": "What are the trade-offs between retrieval-augmented generation and fine-tuning for injecting domain knowledge into an LLM application?"}
+{"id": "r20", "prompt": "Compare dense embedding retrieval and sparse lexical retrieval (e.g. BM25) for search, including hybrid approaches and when each wins."}
+{"id": "r21", "prompt": "Explain the bias-variance trade-off and how regularization, model capacity, and dataset size each move a model along it."}
+{"id": "r22", "prompt": "Compare batch and stream processing for a real-time analytics pipeline, including the Lambda versus Kappa architecture debate, on latency, correctness, and complexity."}
+{"id": "r23", "prompt": "What are the trade-offs between optimistic UI updates and waiting for server confirmation in a collaborative application?"}
+{"id": "r24", "prompt": "Compare Kubernetes-based container orchestration with a managed serverless platform for a small team: control, cost, scaling, and operational burden."}
+{"id": "r25", "prompt": "Explain the trade-offs between normalization and denormalization in relational schema design, and the conditions under which denormalization is justified."}
+{"id": "r26", "prompt": "Compare gRPC streaming, WebSockets, and Server-Sent Events for pushing real-time updates from server to client."}
+{"id": "r27", "prompt": "What are the trade-offs between feature flags and long-lived feature branches for shipping incomplete work safely?"}
+{"id": "r28", "prompt": "Compare blue-green and canary deployment strategies on risk, rollback speed, infrastructure cost, and observability requirements."}
+{"id": "r29", "prompt": "Explain at-least-once, at-most-once, and exactly-once delivery semantics in messaging, and how exactly-once is approximated in real systems."}
+{"id": "r30", "prompt": "Compare property-based testing and example-based unit testing: what each catches, their costs, and when to combine them."}
+{"id": "r31", "prompt": "What are the trade-offs between a shared database and database-per-service in a microservices architecture?"}
+{"id": "r32", "prompt": "Compare the OAuth 2.0 authorization-code-with-PKCE flow and the client-credentials flow: intended use cases and security properties."}
+{"id": "r33", "prompt": "Explain the trade-offs between eager and lazy loading in ORMs, and how the N+1 query problem arises and is mitigated."}
+{"id": "r34", "prompt": "Compare pinning immutable, content-addressed container images against using mutable 'latest' tags for deployment reliability and security."}
+{"id": "r35", "prompt": "What are the trade-offs between CRDTs and operational transformation for real-time collaborative text editing?"}
+{"id": "r36", "prompt": "Compare the cost, latency, and quality trade-offs of self-hosting an open-weights LLM versus calling a hosted API, for a mid-size product."}
+{"id": "r37", "prompt": "Explain the trade-offs between hash-based and range-based sharding in a distributed key-value store, including hotspots and rebalancing."}
+{"id": "r38", "prompt": "Compare static and dynamic typing for a large codebase across developer velocity, safety, and tooling, with nuance beyond 'static is safer'."}
+{"id": "r39", "prompt": "What are the trade-offs between polling, long-polling, and webhooks for integrating with a third-party API?"}
+{"id": "r40", "prompt": "Compare write-through, write-back, and write-around caching strategies, including their consistency guarantees and failure-mode implications."}

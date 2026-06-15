@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 import sys
 from dataclasses import asdict, dataclass
@@ -61,6 +62,17 @@ def _load_tasks(path: Path) -> list[ResearchTask]:
         payload = json.loads(line)
         tasks.append(ResearchTask(id=str(payload["id"]), prompt=str(payload["prompt"])))
     return tasks
+
+
+def wilson_interval(wins: int, n: int, z: float = 1.96) -> tuple[float, float] | None:
+    """95% Wilson score interval for a binomial proportion (no SciPy needed)."""
+    if n == 0:
+        return None
+    p = wins / n
+    denom = 1 + z * z / n
+    center = (p + z * z / (2 * n)) / denom
+    margin = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / denom
+    return (max(0.0, center - margin), min(1.0, center + margin))
 
 
 def fusion_is_a(task_id: str) -> bool:
@@ -165,6 +177,7 @@ def summarize(
     solo_wins = sum(1 for r in results if r.winner == "solo")
     ties = sum(1 for r in results if r.winner == "tie")
     decided = fusion_wins + solo_wins
+    ci = wilson_interval(fusion_wins, decided)
     return {
         "eval": "research_pairwise",
         "tasks_file": str(args.tasks),
@@ -178,7 +191,9 @@ def summarize(
             "fusion_wins": fusion_wins,
             "solo_wins": solo_wins,
             "ties": ties,
+            "decided": decided,
             "fusion_win_rate_decided": (fusion_wins / decided) if decided else None,
+            "fusion_win_rate_ci95": list(ci) if ci else None,
             "solo": {
                 "total_tokens": sum(r.solo_tokens for r in results),
                 "total_cost_usd": sum(r.solo_cost_usd for r in results),
@@ -213,9 +228,11 @@ def main() -> None:
     s = report["summary"]
     rate = s["fusion_win_rate_decided"]
     rate_str = f"{rate * 100:.0f}%" if rate is not None else "n/a"
+    ci = s.get("fusion_win_rate_ci95")
+    ci_str = f" [95% CI {ci[0] * 100:.0f}-{ci[1] * 100:.0f}%]" if ci else ""
     print(
         f"\nfusion {s['fusion_wins']} / solo {s['solo_wins']} / tie {s['ties']} "
-        f"(fusion win rate on decided: {rate_str})",
+        f"(fusion win rate on {s['decided']} decided: {rate_str}{ci_str})",
         file=sys.stderr,
     )
 

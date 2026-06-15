@@ -34,6 +34,10 @@ on:
         description: "Per-call output cap (both solo and fusion)"
         default: "32"
         type: string
+      judge_model:
+        description: "Cross-family judge model for the research eval"
+        default: ""
+        type: string
   push:
     branches:
       - "run-bench/**"
@@ -51,6 +55,7 @@ jobs:
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
       MAX_TOKENS: ${{ github.event.inputs.max_tokens || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32') }}
       EVAL: ${{ contains(github.ref_name, 'research') && 'research' || 'accuracy' }}
+      JUDGE_MODEL: ${{ github.event.inputs.judge_model || 'google/gemini-3-flash-preview' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -89,10 +94,11 @@ jobs:
         run: |
           mkdir -p bench/results
           if [ "$EVAL" = "research" ]; then
-            echo "Running: research_eval (pairwise) with $CONFIG"
+            echo "Running: research_eval (pairwise) with $CONFIG, judge $JUDGE_MODEL"
             python bench/research_eval.py \
               --config "$CONFIG" \
               --tasks bench/tasks/research.jsonl \
+              --judge-model "$JUDGE_MODEL" \
               --max-tokens "$MAX_TOKENS" \
               --output bench/results/latest.json
           else
@@ -130,13 +136,17 @@ jobs:
               s = report["summary"]
               rate = s["fusion_win_rate_decided"]
               rate_str = f"{rate * 100:.0f}%" if rate is not None else "n/a"
+              ci = s.get("fusion_win_rate_ci95")
+              ci_str = f"{ci[0] * 100:.0f}–{ci[1] * 100:.0f}%" if ci else "n/a"
               print(f"- Judge model: `{report['judge_model']}` (blind pairwise)\n")
               print("| Metric | Value |")
               print("|--------|-------|")
+              print(f"| Questions | {s['n']} |")
               print(f"| Fusion wins | {s['fusion_wins']} |")
               print(f"| Solo wins | {s['solo_wins']} |")
               print(f"| Ties | {s['ties']} |")
-              print(f"| Fusion win rate (decided) | {rate_str} |")
+              print(f"| Fusion win rate (of {s['decided']} decided) | {rate_str} |")
+              print(f"| 95% CI (Wilson) | {ci_str} |")
               print(f"| Solo cost | ${s['solo']['total_cost_usd']:.4f} |")
               print(f"| Fusion cost | ${s['fusion']['total_cost_usd']:.4f} |")
           else:
