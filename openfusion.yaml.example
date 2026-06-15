@@ -1,0 +1,35 @@
+# Copy to openfusion.yaml and set environment variables for secrets.
+# openfusion.yaml is gitignored.
+
+strategy: self_fusion
+
+self_fusion:
+  n: 3
+  temperature_spread: [0.3, 0.7, 1.0]
+  seed_offset: true
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: anthropic/claude-sonnet-4
+    label: panel
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: anthropic/claude-sonnet-4
+  max_panel_tokens: 120000
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: anthropic/claude-sonnet-4
+
+timeouts:
+  member_seconds: 120
+  judge_seconds: 180
+  total_seconds: 300
+
+# Optional gateway allowlist. If empty, any client bearer token is accepted.
+gateway:
+  api_keys: []

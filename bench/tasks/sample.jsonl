@@ -1,0 +1,20 @@
+{"id": "math-1", "prompt": "What is 17 + 28? Reply with only the number.", "expected": "45", "match": "exact"}
+{"id": "math-2", "prompt": "What is 144 divided by 12? Reply with only the number.", "expected": "12", "match": "exact"}
+{"id": "logic-1", "prompt": "If all cats are mammals and all mammals are animals, are all cats animals? Answer yes or no only.", "expected": "yes", "match": "exact"}
+{"id": "logic-2", "prompt": "A bat and ball cost $1.10 total. The bat costs $1 more than the ball. How many cents does the ball cost? Reply with only the number.", "expected": "5", "match": "exact"}
+{"id": "fact-1", "prompt": "What is the chemical symbol for gold? Reply with only the symbol.", "expected": "Au", "match": "exact"}
+{"id": "fact-2", "prompt": "How many continents are there? Reply with only the number.", "expected": "7", "match": "exact"}
+{"id": "word-1", "prompt": "What is the opposite of 'hot'? Reply with one word only.", "expected": "cold", "match": "exact"}
+{"id": "word-2", "prompt": "Plural of 'child'? Reply with one word only.", "expected": "children", "match": "exact"}
+{"id": "geo-1", "prompt": "What is the capital of France? Reply with one word only.", "expected": "Paris", "match": "exact"}
+{"id": "geo-2", "prompt": "What is the capital of Japan? Reply with one word only.", "expected": "Tokyo", "match": "exact"}
+{"id": "seq-1", "prompt": "Next number in the sequence 2, 4, 8, 16, ? Reply with only the number.", "expected": "32", "match": "exact"}
+{"id": "seq-2", "prompt": "Next number in the sequence 1, 1, 2, 3, 5, 8, ? Reply with only the number.", "expected": "13", "match": "exact"}
+{"id": "convert-1", "prompt": "How many meters are in 2 kilometers? Reply with only the number.", "expected": "2000", "match": "exact"}
+{"id": "convert-2", "prompt": "How many hours are in 3 days? Reply with only the number.", "expected": "72", "match": "exact"}
+{"id": "reason-1", "prompt": "Alice is taller than Bob. Bob is taller than Carol. Is Alice taller than Carol? Answer yes or no only.", "expected": "yes", "match": "exact"}
+{"id": "reason-2", "prompt": "If today is Monday, what day is it in 3 days? Reply with one word only.", "expected": "Thursday", "match": "exact"}
+{"id": "code-1", "prompt": "In Python, what built-in function returns the length of a list? Reply with only the function name.", "expected": "len", "match": "exact"}
+{"id": "code-2", "prompt": "What keyword defines a function in Python? Reply with one word only.", "expected": "def", "match": "exact"}
+{"id": "science-1", "prompt": "What planet is known as the Red Planet? Reply with one word only.", "expected": "Mars", "match": "exact"}
+{"id": "science-2", "prompt": "What gas do plants absorb from the atmosphere for photosynthesis? Reply with one word only.", "expected": "carbon dioxide", "match": "contains"}
