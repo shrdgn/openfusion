@@ -120,6 +120,12 @@ Use `--tasks bench/tasks/smoke.jsonl --max-tokens 32` before larger benchmark ru
 
 Python 3.11+ / FastAPI / httpx / uvicorn.
 
+## Landing page
+
+The service serves a static project landing page from `GET /`. See
+[docs/LANDING_PAGE.md](docs/LANDING_PAGE.md) for the repo-local website decision, migration trigger,
+and security concerns to revisit before a hosted product accepts public traffic.
+
 ## License
 
 MIT.

@@ -7,10 +7,12 @@ import contextlib
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from openfusion.config import OpenFusionConfig, PanelMember, load_config
 from openfusion.cost import CostPolicy, RequestPhase
@@ -24,6 +26,7 @@ from openfusion.stream import buffer_synthesis, synthesize_and_stream
 from openfusion.upstream import UpstreamClient
 
 FUSION_MODEL = "openfusion"
+LANDING_PAGE_DIR = Path(__file__).resolve().parent / "static" / "landing"
 
 
 def _has_tool_calls(body: dict[str, Any]) -> bool:
@@ -69,12 +72,21 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     app = FastAPI(title="openfusion", version="0.1.0", lifespan=lifespan)
     app.state.config = app_config
     app.state.upstream_client = upstream_client
+    app.mount(
+        "/landing",
+        StaticFiles(directory=LANDING_PAGE_DIR),
+        name="landing",
+    )
 
     def get_config() -> OpenFusionConfig:
         return app.state.config
 
     def get_client() -> UpstreamClient:
         return app.state.upstream_client
+
+    @app.get("/", include_in_schema=False)
+    async def landing_page() -> FileResponse:
+        return FileResponse(LANDING_PAGE_DIR / "index.html", media_type="text/html")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:

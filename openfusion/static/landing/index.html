@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="openfusion is an open-source, OpenAI-compatible compound-model proxy for mixture-of-agents synthesis."
+    />
+    <title>openfusion - Open compound-model proxy</title>
+    <link rel="stylesheet" href="/landing/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="openfusion home">
+        <span class="brand-mark" aria-hidden="true">of</span>
+        <span>openfusion</span>
+      </a>
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a href="#how-it-works">How it works</a>
+        <a href="#quick-start">Quick start</a>
+        <a href="#security">Security</a>
+        <a href="https://github.com/shahar-dagan/openfusion">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero section">
+        <div class="hero-copy">
+          <p class="eyebrow">OpenAI-compatible compound-model proxy</p>
+          <h1>Run a panel of models, stream one stronger answer.</h1>
+          <p class="hero-lede">
+            openfusion fans each prompt out to a configurable panel of LLMs, asks a judge model to
+            synthesize the best response, and returns it through the OpenAI chat completions API you
+            already use.
+          </p>
+          <div class="hero-actions" aria-label="Primary actions">
+            <a class="button button-primary" href="#quick-start">Start locally</a>
+            <a class="button button-secondary" href="https://github.com/shahar-dagan/openfusion">
+              View source
+            </a>
+          </div>
+        </div>
+
+        <aside class="hero-panel" aria-label="openfusion request flow">
+          <div class="flow-card flow-client">Client</div>
+          <div class="flow-arrow" aria-hidden="true"></div>
+          <div class="flow-card flow-proxy">openfusion proxy</div>
+          <div class="flow-grid" aria-label="Panel fan-out">
+            <span>panel A</span>
+            <span>panel B</span>
+            <span>panel C</span>
+          </div>
+          <div class="flow-card flow-judge">judge model</div>
+          <div class="flow-card flow-answer">SSE answer</div>
+        </aside>
+      </section>
+
+      <section class="section proof-strip" aria-label="Project highlights">
+        <article>
+          <span class="stat">Drop-in</span>
+          <p>Point OpenAI-compatible tools at `/v1` and request `model: "openfusion"`.</p>
+        </article>
+        <article>
+          <span class="stat">Config first</span>
+          <p>Panel members, judge, timeouts, token ceilings, and providers live in YAML.</p>
+        </article>
+        <article>
+          <span class="stat">Stateless</span>
+          <p>No database, cache, or queue. Run it from source, Docker, or a hosted edge later.</p>
+        </article>
+      </section>
+
+      <section class="section split" id="how-it-works">
+        <div>
+          <p class="eyebrow">How it works</p>
+          <h2>Mixture-of-agents without a new client SDK.</h2>
+        </div>
+        <div class="steps">
+          <article class="step">
+            <span>01</span>
+            <h3>Receive a normal chat request</h3>
+            <p>
+              The FastAPI service accepts OpenAI-shaped chat completions and passes through non-fusion
+              model names unchanged.
+            </p>
+          </article>
+          <article class="step">
+            <span>02</span>
+            <h3>Fan out to the panel</h3>
+            <p>
+              Configured panel members run in parallel with per-member timeouts and graceful degrade
+              when an upstream fails.
+            </p>
+          </article>
+          <article class="step">
+            <span>03</span>
+            <h3>Synthesize and stream</h3>
+            <p>
+              A judge model reads the panel outputs, resolves contradictions, and streams one
+              OpenAI-compatible answer back to the client.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section quick-start" id="quick-start">
+        <div class="section-heading">
+          <p class="eyebrow">Quick start</p>
+          <h2>Run openfusion locally.</h2>
+          <p>Bring an upstream OpenAI-compatible provider key, then point your client at localhost.</p>
+        </div>
+        <div class="code-grid">
+          <pre><code>pip install -e .
+cp openfusion.yaml.example openfusion.yaml
+export OPENROUTER_API_KEY=your-key-here
+openfusion --host 0.0.0.0 --port 8000</code></pre>
+          <pre><code>from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="local-dev",
+)
+
+stream = client.chat.completions.create(
+    model="openfusion",
+    messages=[{"role": "user", "content": "Explain MoA."}],
+    stream=True,
+)</code></pre>
+        </div>
+      </section>
+
+      <section class="section split" id="security">
+        <div>
+          <p class="eyebrow">Safety model</p>
+          <h2>Built to keep provider access server-side.</h2>
+        </div>
+        <div class="security-grid">
+          <article>
+            <h3>Provider keys stay in config</h3>
+            <p>Client bearer tokens are gateway credentials; upstream API keys come from env-backed YAML.</p>
+          </article>
+          <article>
+            <h3>Cost controls are explicit</h3>
+            <p>Token ceilings cap pass-through, panel, and judge requests before credit burn surprises you.</p>
+          </article>
+          <article>
+            <h3>Logs avoid prompt data</h3>
+            <p>Operational logs focus on metadata, latency, status, usage, and cost rather than prompt text.</p>
+          </article>
+          <article>
+            <h3>Hosted version comes later</h3>
+            <p>
+              A hosted product should add account isolation, rate limits, budget controls, and abuse handling
+              before accepting real user traffic.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section roadmap">
+        <div class="roadmap-card">
+          <p class="eyebrow">Project path</p>
+          <h2>Open source first, hosted when the operational boundary is real.</h2>
+          <p>
+            This landing page is served by the package today so local and hosted deployments have a
+            clear root. If the project picks up, the marketing site or hosted app can move out without
+            changing the proxy API surface.
+          </p>
+          <div class="link-row">
+            <a href="https://github.com/shahar-dagan/openfusion/blob/main/DESIGN.md">Read design</a>
+            <a href="https://github.com/shahar-dagan/openfusion/blob/main/docs/ARCHITECTURE.md">
+              Architecture notes
+            </a>
+            <a href="https://github.com/shahar-dagan/openfusion/blob/main/bench/README.md">
+              Benchmarks
+            </a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>MIT licensed open-source compound-model proxy.</span>
+      <a href="https://github.com/shahar-dagan/openfusion">github.com/shahar-dagan/openfusion</a>
+    </footer>
+  </body>
+</html>
