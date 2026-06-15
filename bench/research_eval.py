@@ -118,43 +118,52 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
     gateway_key = config.gateway.api_keys[0] if config.gateway.api_keys else "bench-key"
 
     results: list[PairResult] = []
+    errors: list[str] = []
     with httpx.Client() as client:
         for task in tasks:
-            solo_answer, _, solo_usage = _chat(
-                client,
-                base_url=args.base_url,
-                model=solo_model,
-                prompt=task.prompt,
-                api_key=gateway_key,
-                max_tokens=args.max_tokens,
-            )
-            fusion_answer, _, fusion_usage = _chat(
-                client,
-                base_url=args.base_url,
-                model=config.fusion_model_name,
-                prompt=task.prompt,
-                api_key=gateway_key,
-                max_tokens=args.max_tokens,
-            )
+            try:
+                solo_answer, _, solo_usage = _chat(
+                    client,
+                    base_url=args.base_url,
+                    model=solo_model,
+                    prompt=task.prompt,
+                    api_key=gateway_key,
+                    max_tokens=args.max_tokens,
+                )
+                fusion_answer, _, fusion_usage = _chat(
+                    client,
+                    base_url=args.base_url,
+                    model=config.fusion_model_name,
+                    prompt=task.prompt,
+                    api_key=gateway_key,
+                    max_tokens=args.max_tokens,
+                )
 
-            fa = fusion_is_a(task.id)
-            answer_a, answer_b = (
-                (fusion_answer, solo_answer) if fa else (solo_answer, fusion_answer)
-            )
-            # Give the judge room to emit a token (thinking models need more
-            # than a few), and a small positive temperature since some models
-            # (e.g. Gemini) degrade at temperature 0.
-            verdict, _, _ = _chat(
-                client,
-                base_url=args.base_url,
-                model=judge_model,
-                prompt=GRADE_PROMPT.format(
-                    question=task.prompt, answer_a=answer_a, answer_b=answer_b
-                ),
-                api_key=gateway_key,
-                max_tokens=16,
-                temperature=0.2,
-            )
+                fa = fusion_is_a(task.id)
+                answer_a, answer_b = (
+                    (fusion_answer, solo_answer) if fa else (solo_answer, fusion_answer)
+                )
+                # Give the judge room to emit a token (thinking models need more
+                # than a few), and a small positive temperature since some models
+                # (e.g. Gemini) degrade at temperature 0.
+                verdict, _, _ = _chat(
+                    client,
+                    base_url=args.base_url,
+                    model=judge_model,
+                    prompt=GRADE_PROMPT.format(
+                        question=task.prompt, answer_a=answer_a, answer_b=answer_b
+                    ),
+                    api_key=gateway_key,
+                    max_tokens=16,
+                    temperature=0.2,
+                )
+            except (httpx.HTTPError, KeyError, ValueError) as exc:
+                # One flaky/slow upstream call shouldn't waste the whole run;
+                # record the task as an error and move on.
+                print(f"task {task.id} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+                errors.append(task.id)
+                continue
+
             results.append(
                 PairResult(
                     task_id=task.id,
@@ -168,7 +177,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
 
-    return summarize(args, solo_model, judge_model, config.fusion_model_name, results)
+    return summarize(args, solo_model, judge_model, config.fusion_model_name, results, errors)
 
 
 def summarize(
@@ -177,7 +186,9 @@ def summarize(
     judge_model: str,
     fusion_model: str,
     results: list[PairResult],
+    errors: list[str] | None = None,
 ) -> dict[str, Any]:
+    errors = errors or []
     fusion_wins = sum(1 for r in results if r.winner == "fusion")
     solo_wins = sum(1 for r in results if r.winner == "solo")
     ties = sum(1 for r in results if r.winner == "tie")
@@ -198,6 +209,7 @@ def summarize(
             "solo_wins": solo_wins,
             "ties": ties,
             "unparsed": unparsed,
+            "errors": len(errors),
             "decided": decided,
             "fusion_win_rate_decided": (fusion_wins / decided) if decided else None,
             "fusion_win_rate_ci95": list(ci) if ci else None,
@@ -239,7 +251,7 @@ def main() -> None:
     ci_str = f" [95% CI {ci[0] * 100:.0f}-{ci[1] * 100:.0f}%]" if ci else ""
     print(
         f"\nfusion {s['fusion_wins']} / solo {s['solo_wins']} / tie {s['ties']} "
-        f"/ unparsed {s['unparsed']} "
+        f"/ unparsed {s['unparsed']} / errors {s.get('errors', 0)} "
         f"(fusion win rate on {s['decided']} decided: {rate_str}{ci_str})",
         file=sys.stderr,
     )

@@ -13,6 +13,8 @@ name: Benchmark
 #        run-bench/research-panel -> research.jsonl, diverse panel config, pairwise judge
 #        run-bench/research-panelstrong -> diverse panel, but solo baseline = the strongest
 #                                          member (deepseek-v4-pro): does fusion beat its best component?
+#        run-bench/research-panelstrongsynth -> like panelstrong, but synthesized by a STRONG
+#                                          model (deepseek-v4-pro): does a strong synthesizer beat the best member?
 
 on:
   workflow_dispatch:
@@ -56,7 +58,7 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.
       # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
-      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example'))) }}
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'openfusion.panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')))) }}
       DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
       LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
@@ -159,6 +161,7 @@ jobs:
               print(f"| Solo wins | {s['solo_wins']} |")
               print(f"| Ties | {s['ties']} |")
               print(f"| Unparsed verdicts | {s.get('unparsed', 0)} |")
+              print(f"| Errors (skipped) | {s.get('errors', 0)} |")
               print(f"| Fusion win rate (of {s['decided']} decided) | {rate_str} |")
               print(f"| 95% CI (Wilson) | {ci_str} |")
               print(f"| Solo cost | ${s['solo']['total_cost_usd']:.4f} |")

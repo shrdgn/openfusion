@@ -2,6 +2,10 @@
 
 Head-to-head comparison of **self-fusion** (panel + judge) vs a **solo** call to the same model.
 
+> **What we learned running these:** see [FINDINGS.md](FINDINGS.md) — fusion only
+> pays off in the right regime, and on tool-free tasks synthesis adds no value
+> over the best panel member. Tools are the next lever.
+
 ## Usage
 
 ```bash

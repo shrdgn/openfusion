@@ -1,0 +1,47 @@
+# Diverse panel synthesized by a STRONG model (deepseek-v4-pro) rather than the
+# cheap gpt-4o-mini. Pairs with run-bench/research-panelstrongsynth, where the
+# solo baseline is also deepseek-v4-pro: does a strong synthesizer let fusion
+# beat its best individual component? (OpenRouter used Opus 4.8 as synthesizer.)
+
+strategy: panel
+aggregator: judge
+
+cost_controls:
+  pass_through_max_tokens: 512
+  panel_max_tokens: 512
+  judge_max_tokens: 512
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: panel-openai
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: deepseek/deepseek-v4-pro
+    label: panel-deepseek
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: moonshotai/kimi-k2.6
+    label: panel-kimi
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: deepseek/deepseek-v4-pro
+  max_panel_tokens: 8000
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+# Synthesizer + panel members are all slow here, so widen the budgets; keep
+# total under the bench client's 360s timeout so the client outlasts the server.
+timeouts:
+  member_seconds: 180
+  judge_seconds: 180
+  total_seconds: 340
+
+gateway:
+  api_keys: []

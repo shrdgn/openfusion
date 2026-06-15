@@ -94,6 +94,7 @@ def _chat(
     api_key: str,
     max_tokens: int,
     temperature: float = 0.0,
+    timeout: float = 360.0,
 ) -> tuple[str, float, dict[str, Any]]:
     started = time.perf_counter()
     response = client.post(
@@ -106,7 +107,7 @@ def _chat(
             "temperature": temperature,
             "max_tokens": max_tokens,
         },
-        timeout=180.0,
+        timeout=timeout,
     )
     response.raise_for_status()
     payload = response.json()
