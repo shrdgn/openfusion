@@ -13,6 +13,7 @@ from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from openfusion.config import OpenFusionConfig, PanelMember, load_config
+from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import (
     AuthenticationError,
     InvalidRequestError,
@@ -127,13 +128,21 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             if not isinstance(model, str) or not model:
                 raise InvalidRequestError("model is required")
 
+            policy = CostPolicy(cfg.cost_controls)
+            policy.validate_max_tokens(body)
             stream = bool(body.get("stream", False))
 
             if model != cfg.fusion_model_name or _has_tool_calls(body):
-                return await _pass_through(body, cfg, client, stream=stream)
+                limited_body = policy.apply_token_limit(
+                    body,
+                    RequestPhase.PASS_THROUGH,
+                    reject_over_limit=True,
+                )
+                return await _pass_through(limited_body, cfg, client, stream=stream)
 
             if cfg.judge is None:
                 raise InvalidRequestError("Judge must be configured for fusion requests")
+            policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
 
             if stream:
                 return await _fusion_stream(request, body, cfg, client)
@@ -168,7 +177,12 @@ async def _pass_through(
         member = member.model_copy(update={"model": str(body["model"])})
 
     payload = {**body, "model": member.model}
-    result = await client.chat_completion(member, payload, stream=stream)
+    result = await client.chat_completion(
+        member,
+        payload,
+        stream=stream,
+        phase=RequestPhase.PASS_THROUGH,
+    )
 
     if stream:
         if not hasattr(result, "__aiter__"):

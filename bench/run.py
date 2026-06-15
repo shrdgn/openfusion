@@ -8,6 +8,7 @@ import json
 import re
 import sys
 import time
+import unicodedata
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -35,7 +36,9 @@ class TaskResult:
 
 
 def _normalize(text: str) -> str:
-    return re.sub(r"\s+", " ", text.strip().lower())
+    normalized = unicodedata.normalize("NFKC", text)
+    normalized = re.sub(r"[\s\.,;:!?]+$", "", normalized.strip())
+    return re.sub(r"\s+", " ", normalized.lower())
 
 
 def _score(task: Task, answer: str) -> bool:
@@ -68,6 +71,7 @@ def _chat(
     model: str,
     prompt: str,
     api_key: str,
+    max_tokens: int,
 ) -> tuple[str, float]:
     started = time.perf_counter()
     response = client.post(
@@ -78,6 +82,7 @@ def _chat(
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "temperature": 0,
+            "max_tokens": max_tokens,
         },
         timeout=180.0,
     )
@@ -102,6 +107,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 model=solo_model,
                 prompt=task.prompt,
                 api_key=gateway_key,
+                max_tokens=args.max_tokens,
             )
             results.append(
                 TaskResult(
@@ -119,6 +125,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                 model=config.fusion_model_name,
                 prompt=task.prompt,
                 api_key=gateway_key,
+                max_tokens=args.max_tokens,
             )
             results.append(
                 TaskResult(
@@ -148,6 +155,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "config": str(args.config),
         "solo_model": solo_model,
         "fusion_model": config.fusion_model_name,
+        "max_tokens": args.max_tokens,
         "solo": summarize("solo"),
         "fusion": summarize("fusion"),
         "results": [asdict(item) for item in results],
@@ -161,6 +169,7 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--solo-model", default=None)
     parser.add_argument("--output", default=None)
+    parser.add_argument("--max-tokens", type=int, default=64)
     args = parser.parse_args()
 
     report = run_benchmark(args)

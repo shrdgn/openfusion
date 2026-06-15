@@ -10,6 +10,7 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 |--------|----------------|-------------|
 | `server.py` | HTTP routes, auth gate, routing (`openfusion` vs pass-through), cancellation orchestration | SSE framing, judge prompt logic |
 | `config.py` | Typed config from YAML + env | HTTP or upstream calls |
+| `cost.py` | Token ceilings and request cost policy | Provider-specific pricing math |
 | `upstream.py` | Shared httpx client for OpenAI-compatible APIs | Business logic about panels or judges |
 | `panel.py` | Parallel fan-out, timeouts, degrade, 429 retry | SSE framing |
 | `synthesize.py` | Judge prompt assembly, yield text deltas only | SSE framing |
@@ -37,8 +38,19 @@ Client → server.py
 ## Configuration and secrets
 
 - Runtime config lives in `openfusion.yaml` (gitignored). Use `openfusion.yaml.example` as the template.
+- `openfusion.dev.yaml.example` is the low-cost live-test recipe; it is intentionally smaller than
+  the default self-fusion example.
 - `${ENV_VAR}` placeholders in YAML are expanded at load time; missing env vars fail fast.
 - Upstream provider API keys come from config/env only. Client `Authorization` is an optional openfusion gateway token.
+- `cost_controls` sets pass-through, panel, and judge token ceilings. Visible over-limit requests
+  fail with `400`; internal panel calls clamp because panel output is intermediate.
+
+## Observability
+
+- `upstream.py` emits one structured log line per upstream request with phase, label, model, stream
+  mode, status, latency, chunk count, and provider usage/cost when returned.
+- Logs must not include prompts, response text, `Authorization`, or `api_key` values.
+- Usage and cost numbers are provider-reported and best-effort; missing provider usage is omitted.
 
 ## Security considerations
 
@@ -47,6 +59,8 @@ Client → server.py
 | Upstream key exfiltration | Never read provider keys from client headers or body | Audit logs for accidental key emission |
 | Gateway auth bypass | Optional `OPENFUSION_API_KEYS` / `gateway.api_keys` allowlist | Rate limiting per gateway key |
 | Secret logging | Redact `Authorization` and `api_key` fields in debug logs | Structured log scrubber |
+| Prompt leakage in logs | Upstream request logs include metadata/usage only, not request or response bodies | Add automated log schema checks for every route |
+| Accidental credit burn | `cost_controls` inject/reject/clamp `max_tokens`; live smoke requires explicit opt-in | Per-key budget counters and rate limits |
 | Config file permissions | Document `chmod 600 openfusion.yaml` in README | Optional startup warning if world-readable |
 | SSRF via `base_url` | Config is operator-controlled; document trust boundary | Optional URL allowlist for enterprise |
 | Token burn on cancel | Cancel panel/judge tasks on client disconnect | Integration test for cancellation |

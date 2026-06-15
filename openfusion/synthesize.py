@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from openfusion.config import JudgeConfig, OpenFusionConfig
+from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult
 from openfusion.upstream import UpstreamClient
@@ -15,6 +16,7 @@ JUDGE_SYSTEM_PROMPT = (
     "You are the synthesizer. Below are N independent answers to the same user request. "
     "Identify points of consensus, contradictions, partial coverage, and blind spots. "
     "Then write a single best answer grounded in that analysis. "
+    "Honor the original user's output format and constraints exactly. "
     "Do not mention the panel or that multiple answers existed."
 )
 
@@ -122,12 +124,18 @@ async def synthesize(
     judge_body["stream"] = True
     if request_body.get("stream_options"):
         judge_body["stream_options"] = request_body["stream_options"]
+    judge_body = CostPolicy(config.cost_controls).apply_token_limit(
+        judge_body,
+        RequestPhase.JUDGE,
+        reject_over_limit=True,
+    )
 
     stream = await client.chat_completion(
         judge_member,
         judge_body,
         stream=True,
         timeout=timeout,
+        phase=RequestPhase.JUDGE,
     )
     if not hasattr(stream, "__aiter__"):
         raise UpstreamError("Expected streaming judge response")

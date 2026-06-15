@@ -1,0 +1,39 @@
+# Low-cost OpenRouter recipe for local development and smoke tests.
+# Copy to openfusion.yaml or pass with OPENFUSION_CONFIG/openfusion commands.
+
+strategy: self_fusion
+
+self_fusion:
+  n: 2
+  temperature_spread: [0.2, 0.7]
+  seed_offset: true
+
+cost_controls:
+  pass_through_max_tokens: 80
+  panel_max_tokens: 48
+  judge_max_tokens: 80
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: dev-panel
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+  max_panel_tokens: 8000
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+timeouts:
+  member_seconds: 60
+  judge_seconds: 90
+  total_seconds: 180
+
+gateway:
+  api_keys: []

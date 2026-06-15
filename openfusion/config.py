@@ -59,6 +59,14 @@ class GatewayAuthConfig(BaseModel):
     api_keys: list[str] = Field(default_factory=list)
 
 
+class CostControlsConfig(BaseModel):
+    """Token ceilings used to keep live provider calls bounded."""
+
+    pass_through_max_tokens: int | None = Field(default=None, ge=1)
+    panel_max_tokens: int | None = Field(default=None, ge=1)
+    judge_max_tokens: int | None = Field(default=None, ge=1)
+
+
 class PassThroughConfig(BaseModel):
     """Single upstream used for non-fusion model pass-through and tool calls."""
 
@@ -79,6 +87,7 @@ class OpenFusionConfig(BaseModel):
     self_fusion: SelfFusionConfig = Field(default_factory=SelfFusionConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     gateway: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
+    cost_controls: CostControlsConfig = Field(default_factory=CostControlsConfig)
     pass_through: PassThroughConfig | None = None
     fusion_model_name: str = "openfusion"
 

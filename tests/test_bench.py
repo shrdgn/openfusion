@@ -19,3 +19,11 @@ def test_contains_match_scoring() -> None:
 
 def test_normalize_strips_case_and_whitespace() -> None:
     assert _normalize("  YES \n") == "yes"
+
+
+def test_normalize_strips_terminal_punctuation() -> None:
+    assert _normalize("Yes.") == "yes"
+
+
+def test_normalize_compatibility_characters() -> None:
+    assert _normalize("H₂O") == "h2o"

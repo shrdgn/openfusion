@@ -22,6 +22,22 @@ def test_load_example_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert config.panel[0].api_key == "secret-key"
     assert config.judge is not None
     assert config.judge.api_key == "secret-key"
+    assert config.cost_controls.pass_through_max_tokens == 1024
+    assert config.cost_controls.panel_max_tokens == 512
+    assert config.cost_controls.judge_max_tokens == 1024
+
+
+def test_load_dev_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-key")
+    config_path = tmp_path / "openfusion.dev.yaml"
+    example = Path("openfusion.dev.yaml.example").read_text(encoding="utf-8")
+    config_path.write_text(example, encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert config.self_fusion.n == 2
+    assert config.panel[0].model == "openai/gpt-4o-mini"
+    assert config.cost_controls.pass_through_max_tokens == 80
 
 
 def test_gateway_keys_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -8,6 +8,14 @@ self_fusion:
   temperature_spread: [0.3, 0.7, 1.0]
   seed_offset: true
 
+cost_controls:
+  # Ceilings are applied when the client omits max_tokens.
+  # Pass-through and judge requests reject client max_tokens above the ceiling.
+  # Panel requests clamp internally because panel output is not directly visible to the client.
+  pass_through_max_tokens: 1024
+  panel_max_tokens: 512
+  judge_max_tokens: 1024
+
 panel:
   - base_url: https://openrouter.ai/api/v1
     api_key: ${OPENROUTER_API_KEY}
