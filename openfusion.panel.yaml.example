@@ -1,0 +1,45 @@
+# Diverse multi-model panel (not self-fusion) for the diversity experiment.
+# Three different families fan out in parallel; a judge synthesizes one answer.
+# Solo baseline in the bench is panel[0] (gpt-4o-mini), so this isolates the
+# effect of adding a *diverse* panel + synthesis over that same model alone.
+
+strategy: panel
+aggregator: judge
+
+cost_controls:
+  pass_through_max_tokens: 512
+  panel_max_tokens: 512
+  judge_max_tokens: 512
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: panel-openai
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: deepseek/deepseek-v4-pro
+    label: panel-deepseek
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: moonshotai/kimi-k2.6
+    label: panel-kimi
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+  max_panel_tokens: 8000
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+timeouts:
+  member_seconds: 120
+  judge_seconds: 120
+  total_seconds: 300
+
+gateway:
+  api_keys: []

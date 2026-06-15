@@ -32,7 +32,9 @@ GRADE_PROMPT = (
     "Question:\n{question}\n\n"
     "Answer A:\n{answer_a}\n\n"
     "Answer B:\n{answer_b}\n\n"
-    "Which answer is better overall? Reply with exactly one token: A, B, or TIE."
+    "Which answer is better overall? Pick a winner; only answer TIE if the two "
+    "are genuinely indistinguishable in quality. Reply with exactly one token: "
+    "A, B, or TIE."
 )
 
 

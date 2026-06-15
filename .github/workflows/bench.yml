@@ -9,7 +9,8 @@ name: Benchmark
 #        run-bench/sample      -> sample.jsonl, dev config,        max_tokens 32
 #        run-bench/gsm8k       -> GSM8K loader, bench config,      max_tokens 512 (judge)
 #        run-bench/gsm8k-vote  -> GSM8K loader, bench-vote config, max_tokens 512 (vote)
-#        run-bench/research    -> research.jsonl open-ended, bench config, pairwise LLM-judge
+#        run-bench/research    -> research.jsonl open-ended, bench config (self-fusion), pairwise judge
+#        run-bench/research-panel -> research.jsonl, diverse panel config, pairwise judge
 
 on:
   workflow_dispatch:
@@ -49,7 +50,7 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.
       # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
-      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')) }}
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example'))) }}
       DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
       LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
