@@ -11,6 +11,8 @@ name: Benchmark
 #        run-bench/gsm8k-vote  -> GSM8K loader, bench-vote config, max_tokens 512 (vote)
 #        run-bench/research    -> research.jsonl open-ended, bench config (self-fusion), pairwise judge
 #        run-bench/research-panel -> research.jsonl, diverse panel config, pairwise judge
+#        run-bench/research-panelstrong -> diverse panel, but solo baseline = the strongest
+#                                          member (deepseek-v4-pro): does fusion beat its best component?
 
 on:
   workflow_dispatch:
@@ -39,6 +41,10 @@ on:
         description: "Cross-family judge model for the research eval"
         default: ""
         type: string
+      solo_model:
+        description: "Override solo baseline model (research eval; blank = panel[0])"
+        default: ""
+        type: string
   push:
     branches:
       - "run-bench/**"
@@ -57,6 +63,9 @@ jobs:
       MAX_TOKENS: ${{ github.event.inputs.max_tokens || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32') }}
       EVAL: ${{ contains(github.ref_name, 'research') && 'research' || 'accuracy' }}
       JUDGE_MODEL: ${{ github.event.inputs.judge_model || 'google/gemini-3-flash-preview' }}
+      # 'panelstrong' overrides the solo baseline to the strongest panel member
+      # so we can ask whether fusion beats its best component (not just panel[0]).
+      SOLO_MODEL: ${{ github.event.inputs.solo_model || (contains(github.ref_name, 'panelstrong') && 'deepseek/deepseek-v4-pro' || '') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -95,11 +104,14 @@ jobs:
         run: |
           mkdir -p bench/results
           if [ "$EVAL" = "research" ]; then
-            echo "Running: research_eval (pairwise) with $CONFIG, judge $JUDGE_MODEL"
+            SOLO_ARG=""
+            if [ -n "$SOLO_MODEL" ]; then SOLO_ARG="--solo-model $SOLO_MODEL"; fi
+            echo "Running: research_eval (pairwise) with $CONFIG, judge $JUDGE_MODEL, solo ${SOLO_MODEL:-panel[0]}"
             python bench/research_eval.py \
               --config "$CONFIG" \
               --tasks bench/tasks/research.jsonl \
               --judge-model "$JUDGE_MODEL" \
+              $SOLO_ARG \
               --max-tokens "$MAX_TOKENS" \
               --output bench/results/latest.json
           else
