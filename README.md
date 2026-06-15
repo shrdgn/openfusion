@@ -110,15 +110,29 @@ python bench/run.py --config openfusion.yaml.example --tasks bench/tasks/sample.
 Use `--tasks bench/tasks/smoke.jsonl --max-tokens 32` before larger benchmark runs.
 
 Each run reports accuracy **plus** the spend it took to get there — `total_tokens` and
-`total_cost_usd` per mode — so you can weigh any accuracy lift against the extra cost of fanning
+`total_cost_usd` per mode — so you can weigh any accuracy change against the extra cost of fanning
 out to a panel.
 
-| Recipe | Tasks | Accuracy | Notes |
-|--------|-------|----------|-------|
-| Solo model | 20 | baseline | Same model, single sample |
-| Self-fusion (N=3) | 20 | +lift on reasoning tasks | See `bench/README.md` for reproduction |
+### What we measure today
 
-> Claim only what your local `bench/run.py` run proves on your chosen model and task set.
+The bundled `bench/tasks/sample.jsonl` (20 short Q&A tasks) is **saturated** for a capable model —
+the solo baseline already scores ~100%, so there is no headroom for fusion to add accuracy. On a
+recent run with `openai/gpt-4o-mini` (self-fusion N=2, `max_tokens=32`):
+
+| Mode | Accuracy | Avg latency | Tokens | Cost |
+|------|----------|-------------|--------|------|
+| Solo | 100% (20/20) | 0.55s | 536 | $0.0001 |
+| Self-fusion | 95% (19/20) | 1.40s | 4,669 | $0.0008 |
+
+So on easy tasks fusion does **not** beat a single call — it costs more (here ~9× the tokens) and
+can even regress, because the judge only has trivially-correct answers to choose between. This is
+expected: mixture-of-agents helps where a single model is *unreliable*, not where it is already
+right.
+
+> openfusion makes **no** "beats frontier" claim. Demonstrating where fusion earns its cost needs
+> a harder eval (one the solo baseline does not already ace) scored on **quality per dollar**, not
+> accuracy alone. That eval is in progress; this table will be updated to show where fusion does
+> and doesn't pay off. Claim only what your own `bench/run.py` run proves on your model and tasks.
 
 ## Observability
 
