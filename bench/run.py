@@ -93,6 +93,7 @@ def _chat(
     prompt: str,
     api_key: str,
     max_tokens: int,
+    temperature: float = 0.0,
 ) -> tuple[str, float, dict[str, Any]]:
     started = time.perf_counter()
     response = client.post(
@@ -102,7 +103,7 @@ def _chat(
             "model": model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False,
-            "temperature": 0,
+            "temperature": temperature,
             "max_tokens": max_tokens,
         },
         timeout=180.0,

@@ -38,5 +38,11 @@ def test_winner_tolerates_verbose_verdicts() -> None:
     assert winner_from_verdict("It's a tie", fusion_was_a=True) == "tie"
 
 
-def test_winner_defaults_to_tie_when_unparseable() -> None:
-    assert winner_from_verdict("???", fusion_was_a=True) == "tie"
+def test_winner_unparsed_when_no_signal() -> None:
+    # Empty or garbled judge replies must surface as 'unparsed', not silent ties.
+    assert winner_from_verdict("???", fusion_was_a=True) == "unparsed"
+    assert winner_from_verdict("", fusion_was_a=True) == "unparsed"
+
+
+def test_explicit_tie_is_tie_not_unparsed() -> None:
+    assert winner_from_verdict("TIE", fusion_was_a=True) == "tie"

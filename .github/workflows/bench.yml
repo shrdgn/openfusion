@@ -145,6 +145,7 @@ jobs:
               print(f"| Fusion wins | {s['fusion_wins']} |")
               print(f"| Solo wins | {s['solo_wins']} |")
               print(f"| Ties | {s['ties']} |")
+              print(f"| Unparsed verdicts | {s.get('unparsed', 0)} |")
               print(f"| Fusion win rate (of {s['decided']} decided) | {rate_str} |")
               print(f"| 95% CI (Wilson) | {ci_str} |")
               print(f"| Solo cost | ${s['solo']['total_cost_usd']:.4f} |")

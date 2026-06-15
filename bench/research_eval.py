@@ -82,28 +82,27 @@ def fusion_is_a(task_id: str) -> bool:
 
 
 def winner_from_verdict(verdict: str, fusion_was_a: bool) -> str:
-    """Map a raw A/B/TIE verdict to 'fusion' | 'solo' | 'tie'.
+    """Map a raw A/B/TIE verdict to 'fusion' | 'solo' | 'tie' | 'unparsed'.
 
     Uses word-boundary matching so verbose verdicts like "Answer B" are not
-    misread (the 'A' in 'Answer' must not count). TIE wins ties; if both A and
-    B appear, the earliest-mentioned letter is used.
+    misread (the 'A' in 'Answer' must not count). An explicit TIE returns
+    'tie'; a verdict with no A/B/TIE signal at all (e.g. an empty or garbled
+    judge reply) returns 'unparsed' so it is surfaced rather than silently
+    counted as a tie. If both A and B appear, the earliest letter wins.
     """
     text = verdict.strip().upper()
     if re.search(r"\bTIE\b", text):
-        choice = "TIE"
-    else:
-        match_a = re.search(r"\bA\b", text)
-        match_b = re.search(r"\bB\b", text)
-        if match_a and match_b:
-            choice = "A" if match_a.start() < match_b.start() else "B"
-        elif match_a:
-            choice = "A"
-        elif match_b:
-            choice = "B"
-        else:
-            choice = "TIE"
-    if choice == "TIE":
         return "tie"
+    match_a = re.search(r"\bA\b", text)
+    match_b = re.search(r"\bB\b", text)
+    if match_a and match_b:
+        choice = "A" if match_a.start() < match_b.start() else "B"
+    elif match_a:
+        choice = "A"
+    elif match_b:
+        choice = "B"
+    else:
+        return "unparsed"
     if choice == "A":
         return "fusion" if fusion_was_a else "solo"
     return "solo" if fusion_was_a else "fusion"
@@ -140,6 +139,9 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
             answer_a, answer_b = (
                 (fusion_answer, solo_answer) if fa else (solo_answer, fusion_answer)
             )
+            # Give the judge room to emit a token (thinking models need more
+            # than a few), and a small positive temperature since some models
+            # (e.g. Gemini) degrade at temperature 0.
             verdict, _, _ = _chat(
                 client,
                 base_url=args.base_url,
@@ -148,7 +150,8 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     question=task.prompt, answer_a=answer_a, answer_b=answer_b
                 ),
                 api_key=gateway_key,
-                max_tokens=4,
+                max_tokens=16,
+                temperature=0.2,
             )
             results.append(
                 PairResult(
@@ -176,6 +179,7 @@ def summarize(
     fusion_wins = sum(1 for r in results if r.winner == "fusion")
     solo_wins = sum(1 for r in results if r.winner == "solo")
     ties = sum(1 for r in results if r.winner == "tie")
+    unparsed = sum(1 for r in results if r.winner == "unparsed")
     decided = fusion_wins + solo_wins
     ci = wilson_interval(fusion_wins, decided)
     return {
@@ -191,6 +195,7 @@ def summarize(
             "fusion_wins": fusion_wins,
             "solo_wins": solo_wins,
             "ties": ties,
+            "unparsed": unparsed,
             "decided": decided,
             "fusion_win_rate_decided": (fusion_wins / decided) if decided else None,
             "fusion_win_rate_ci95": list(ci) if ci else None,
@@ -232,6 +237,7 @@ def main() -> None:
     ci_str = f" [95% CI {ci[0] * 100:.0f}-{ci[1] * 100:.0f}%]" if ci else ""
     print(
         f"\nfusion {s['fusion_wins']} / solo {s['solo_wins']} / tie {s['ties']} "
+        f"/ unparsed {s['unparsed']} "
         f"(fusion win rate on {s['decided']} decided: {rate_str}{ci_str})",
         file=sys.stderr,
     )
