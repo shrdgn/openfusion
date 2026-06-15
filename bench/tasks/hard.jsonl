@@ -1,0 +1,39 @@
+{"id": "math-1", "prompt": "A store sells pencils at 3 for $0.45. How many cents does one pencil cost? Reply with only the number.", "expected": "15", "match": "numeric"}
+{"id": "math-2", "prompt": "A train travels 60 miles in 1.5 hours. At the same speed, how many miles does it travel in 4 hours? Reply with only the number.", "expected": "160", "match": "numeric"}
+{"id": "math-3", "prompt": "Sarah has 24 apples. She gives 1/3 of them to Tom, then 1/4 of what remains to Lisa. How many apples does Sarah have left? Reply with only the number.", "expected": "12", "match": "numeric"}
+{"id": "math-4", "prompt": "A shirt costs $40 after a 20% discount. What was the original price in dollars? Reply with only the number.", "expected": "50", "match": "numeric"}
+{"id": "math-5", "prompt": "Tom is twice as old as Jerry. In 5 years, their ages will sum to 40. How old is Tom now? Reply with only the number.", "expected": "20", "match": "numeric"}
+{"id": "math-6", "prompt": "Three consecutive integers sum to 72. What is the largest of the three? Reply with only the number.", "expected": "25", "match": "numeric"}
+{"id": "math-7", "prompt": "A car uses 6 liters of fuel per 100 km. How many liters does it use on a 250 km trip? Reply with only the number.", "expected": "15", "match": "numeric"}
+{"id": "math-8", "prompt": "If x + 7 = 3x - 5, what is x? Reply with only the number.", "expected": "6", "match": "numeric"}
+{"id": "math-9", "prompt": "A number increased by 25% equals 50. What is the number? Reply with only the number.", "expected": "40", "match": "numeric"}
+{"id": "math-10", "prompt": "Two trains start 300 km apart and move toward each other at 50 km/h and 70 km/h. After how many hours do they meet? Reply with only the number.", "expected": "2.5", "match": "numeric"}
+{"id": "math-11", "prompt": "A shop buys an item for $60 and sells it for $75. What is the percent profit? Reply with only the number.", "expected": "25", "match": "numeric"}
+{"id": "math-12", "prompt": "If 3 pumps fill a pool in 8 hours, how many hours do 4 pumps take at the same rate? Reply with only the number.", "expected": "6", "match": "numeric"}
+{"id": "math-13", "prompt": "A rectangle is 8 cm long and 5 cm wide. What is its perimeter in cm? Reply with only the number.", "expected": "26", "match": "numeric"}
+{"id": "math-14", "prompt": "A tank holds 200 liters and is currently 35% full. How many liters are needed to fill it completely? Reply with only the number.", "expected": "130", "match": "numeric"}
+{"id": "math-15", "prompt": "Half of a number, plus 10, equals 25. What is the number? Reply with only the number.", "expected": "30", "match": "numeric"}
+{"id": "math-16", "prompt": "A runner covers 8 km in 40 minutes. What is the speed in km/h? Reply with only the number.", "expected": "12", "match": "numeric"}
+{"id": "math-17", "prompt": "A box contains 5 dozen eggs and 7 of them break. How many unbroken eggs remain? Reply with only the number.", "expected": "53", "match": "numeric"}
+{"id": "math-18", "prompt": "A recipe uses 2 eggs to make 12 cookies. How many eggs are needed to make 30 cookies? Reply with only the number.", "expected": "5", "match": "numeric"}
+{"id": "math-19", "prompt": "A worker earns $18 per hour and works 7.5 hours. How many dollars does the worker earn? Reply with only the number.", "expected": "135", "match": "numeric"}
+{"id": "math-20", "prompt": "In a class of 30 students, 60% passed an exam. How many students failed? Reply with only the number.", "expected": "12", "match": "numeric"}
+{"id": "math-21", "prompt": "A square has an area of 49 square cm. What is its perimeter in cm? Reply with only the number.", "expected": "28", "match": "numeric"}
+{"id": "math-22", "prompt": "Anna saves $15 each week. How many weeks does she need to save $180? Reply with only the number.", "expected": "12", "match": "numeric"}
+{"id": "trap-1", "prompt": "A notebook and a pen cost $2.20 in total. The notebook costs $2.00 more than the pen. How many cents does the pen cost? Reply with only the number.", "expected": "10", "match": "numeric"}
+{"id": "trap-2", "prompt": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How many cents does the ball cost? Reply with only the number.", "expected": "5", "match": "numeric"}
+{"id": "trap-3", "prompt": "If 5 machines make 5 widgets in 5 minutes, how many minutes do 100 machines take to make 100 widgets? Reply with only the number.", "expected": "5", "match": "numeric"}
+{"id": "trap-4", "prompt": "A patch of lily pads doubles in size every day and covers a whole lake in 48 days. On which day was the lake half covered? Reply with only the number.", "expected": "47", "match": "numeric"}
+{"id": "trap-5", "prompt": "A farmer has 17 sheep. All but 9 of them die. How many sheep are left? Reply with only the number.", "expected": "9", "match": "numeric"}
+{"id": "trap-6", "prompt": "If you take 2 apples from a pile of 3 apples, how many apples do you have? Reply with only the number.", "expected": "2", "match": "numeric"}
+{"id": "trap-7", "prompt": "At 3:15, what is the smaller angle in degrees between the hour and minute hands of a clock? Reply with only the number.", "expected": "7.5", "match": "numeric"}
+{"id": "logic-1", "prompt": "All roses are flowers. Some flowers fade quickly. Does it logically follow that some roses fade quickly? Answer yes or no only.", "expected": "no", "match": "exact"}
+{"id": "logic-2", "prompt": "A is taller than B. C is shorter than B. Who is the tallest? Reply with only the single letter.", "expected": "A", "match": "exact"}
+{"id": "logic-3", "prompt": "If today is Monday, what day of the week will it be 100 days from now? Reply with only the weekday name.", "expected": "Wednesday", "match": "exact"}
+{"id": "logic-4", "prompt": "Mary's father has five daughters named Nana, Nene, Nini, Nono, and ____. What is the fifth daughter's name? Reply with only the name.", "expected": "Mary", "match": "exact"}
+{"id": "logic-5", "prompt": "Which weighs more: one kilogram of feathers or one kilogram of iron? Answer with only one word: same, feathers, or iron.", "expected": "same", "match": "exact"}
+{"id": "logic-6", "prompt": "What is the next number in the sequence 2, 4, 8, 16, ? Reply with only the number.", "expected": "32", "match": "numeric"}
+{"id": "logic-7", "prompt": "What is the next number in the Fibonacci sequence 1, 1, 2, 3, 5, 8, ? Reply with only the number.", "expected": "13", "match": "numeric"}
+{"id": "logic-8", "prompt": "A pizza is cut into 8 equal slices. You eat 3 and a friend eats 2. What fraction of the pizza remains? Reply as a fraction in the form a/b.", "expected": "3/8", "match": "contains"}
+{"id": "logic-9", "prompt": "Five people each shake hands once with every other person. How many handshakes happen in total? Reply with only the number.", "expected": "10", "match": "numeric"}
+{"id": "logic-10", "prompt": "A clock takes 6 seconds to strike 4 o'clock (4 strikes). How many seconds does it take to strike 8 o'clock (8 strikes)? Reply with only the number.", "expected": "14", "match": "numeric"}
