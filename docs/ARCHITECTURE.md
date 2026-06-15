@@ -15,6 +15,7 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 | `panel.py` | Parallel fan-out, timeouts, degrade, 429 retry | SSE framing |
 | `synthesize.py` | Judge prompt assembly, yield text deltas only | SSE framing |
 | `stream.py` | All OpenAI chunk/SSE framing, progress events, terminal usage | Judge prompt content decisions |
+| `metrics.py` | In-process counters/latency/token+cost registry, Prometheus text rendering | HTTP, upstream calls, prompt/secret handling |
 
 ## Request flow
 
@@ -49,6 +50,14 @@ Client → server.py
 
 - `upstream.py` emits one structured log line per upstream request with phase, label, model, stream
   mode, status, latency, chunk count, and provider usage/cost when returned.
+- `metrics.py` aggregates those same events into cumulative series exposed at `GET /metrics` in
+  Prometheus text format. Recording happens at two chokepoints — `upstream._log_request` (per
+  upstream call) and the `server.py` route handler (per client-facing request, with accurate
+  end-to-end latency for streaming via the generator's `finally`). Panel success/failure counts are
+  recorded in `panel.gather_panel`.
+- Metrics carry only labels (`route`, `phase`, `kind`, `outcome`) and numbers — never prompts,
+  labels derived from user content, or secrets. `/metrics` is unauthenticated; treat it as
+  scrape-only and bind it to a trusted interface.
 - Logs must not include prompts, response text, `Authorization`, or `api_key` values.
 - Usage and cost numbers are provider-reported and best-effort; missing provider usage is omitted.
 

@@ -11,6 +11,7 @@ from typing import Any
 from openfusion.config import OpenFusionConfig, PanelMember, Strategy
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
+from openfusion.metrics import METRICS
 from openfusion.upstream import UpstreamClient
 
 
@@ -26,7 +27,7 @@ class MemberResponse:
     label: str
     content: str
     model: str
-    usage: dict[str, int] | None = None
+    usage: dict[str, float] | None = None
     raw: dict[str, Any] | None = None
 
 
@@ -36,21 +37,29 @@ class PanelResult:
     failures: list[MemberFailure] = field(default_factory=list)
 
     @property
-    def usage_total(self) -> dict[str, int] | None:
+    def usage_total(self) -> dict[str, float] | None:
         prompt = completion = 0
+        cost = 0.0
         found = False
+        has_cost = False
         for response in self.responses:
             if response.usage:
                 found = True
-                prompt += response.usage.get("prompt_tokens", 0)
-                completion += response.usage.get("completion_tokens", 0)
+                prompt += int(response.usage.get("prompt_tokens", 0))
+                completion += int(response.usage.get("completion_tokens", 0))
+                if "cost" in response.usage:
+                    has_cost = True
+                    cost += float(response.usage["cost"])
         if not found:
             return None
-        return {
+        total: dict[str, float] = {
             "prompt_tokens": prompt,
             "completion_tokens": completion,
             "total_tokens": prompt + completion,
         }
+        if has_cost:
+            total["cost"] = cost
+        return total
 
 
 def expand_panel_members(config: OpenFusionConfig) -> list[tuple[PanelMember, dict[str, Any]]]:
@@ -85,15 +94,18 @@ def _extract_content(payload: dict[str, Any]) -> str:
     return content if isinstance(content, str) else ""
 
 
-def _extract_usage(payload: dict[str, Any]) -> dict[str, int] | None:
+def _extract_usage(payload: dict[str, Any]) -> dict[str, float] | None:
     usage = payload.get("usage")
     if not isinstance(usage, dict):
         return None
-    result: dict[str, int] = {}
+    result: dict[str, float] = {}
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = usage.get(key)
-        if isinstance(value, int):
+        if isinstance(value, int) and not isinstance(value, bool):
             result[key] = value
+    cost = usage.get("cost")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+        result["cost"] = float(cost)
     return result or None
 
 
@@ -223,6 +235,8 @@ async def gather_panel(
             raise outcome
         elif isinstance(outcome, Exception):
             result.failures.append(MemberFailure(label="unknown", reason=str(outcome)))
+
+    METRICS.record_panel(succeeded=len(result.responses), failed=len(result.failures))
 
     if not result.responses:
         reasons = "; ".join(f"{failure.label}: {failure.reason}" for failure in result.failures)

@@ -12,6 +12,7 @@ import httpx
 
 from openfusion.config import PanelMember
 from openfusion.errors import UpstreamError
+from openfusion.metrics import METRICS
 
 DEFAULT_TIMEOUT = httpx.Timeout(connect=10.0, read=300.0, write=30.0, pool=10.0)
 LOGGER = logging.getLogger("openfusion.upstream")
@@ -215,6 +216,15 @@ class UpstreamClient:
                 if key in usage:
                     fields[key] = usage[key]
         LOGGER.log(level, "upstream_request %s", json.dumps(fields, sort_keys=True))
+
+        if phase:
+            outcome = "success" if status_code is not None and status_code < 400 else "error"
+            METRICS.record_upstream(
+                phase=phase,
+                outcome=outcome,
+                latency_ms=latency_ms,
+                usage=usage,
+            )
 
 
 def member_from_dict(

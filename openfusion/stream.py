@@ -81,7 +81,7 @@ async def synthesize_and_stream(
 
     role_sent = False
     finish_reason: str | None = None
-    judge_usage: dict[str, int] | None = None
+    judge_usage: dict[str, float] | None = None
 
     try:
         async for delta, usage, reason in synthesize(
@@ -143,7 +143,7 @@ async def synthesize_and_stream(
 
 def _build_usage_payload(
     panel: PanelResult,
-    judge_usage: dict[str, int] | None,
+    judge_usage: dict[str, float] | None,
 ) -> dict[str, Any] | None:
     panel_usage = panel.usage_total
     if panel_usage is None and judge_usage is None:
@@ -159,13 +159,16 @@ def _build_usage_payload(
         "judge": judge_usage,
     }
     if panel_usage and judge_usage:
-        payload["total"] = {
+        total = {
             "prompt_tokens": panel_usage.get("prompt_tokens", 0)
             + judge_usage.get("prompt_tokens", 0),
             "completion_tokens": panel_usage.get("completion_tokens", 0)
             + judge_usage.get("completion_tokens", 0),
             "total_tokens": panel_usage.get("total_tokens", 0) + judge_usage.get("total_tokens", 0),
         }
+        if "cost" in panel_usage or "cost" in judge_usage:
+            total["cost"] = panel_usage.get("cost", 0.0) + judge_usage.get("cost", 0.0)
+        payload["total"] = total
     return payload
 
 
@@ -177,7 +180,7 @@ async def buffer_synthesis(
     """Non-streaming synthesis by buffering judge output."""
     content_parts: list[str] = []
     finish_reason = "stop"
-    judge_usage: dict[str, int] | None = None
+    judge_usage: dict[str, float] | None = None
 
     panel = await gather_panel(request_body, config, client)
     async for delta, usage, reason in synthesize(

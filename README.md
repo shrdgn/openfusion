@@ -109,12 +109,31 @@ python bench/run.py --config openfusion.yaml.example --tasks bench/tasks/sample.
 
 Use `--tasks bench/tasks/smoke.jsonl --max-tokens 32` before larger benchmark runs.
 
+Each run reports accuracy **plus** the spend it took to get there — `total_tokens` and
+`total_cost_usd` per mode — so you can weigh any accuracy lift against the extra cost of fanning
+out to a panel.
+
 | Recipe | Tasks | Accuracy | Notes |
 |--------|-------|----------|-------|
 | Solo model | 20 | baseline | Same model, single sample |
 | Self-fusion (N=3) | 20 | +lift on reasoning tasks | See `bench/README.md` for reproduction |
 
 > Claim only what your local `bench/run.py` run proves on your chosen model and task set.
+
+## Observability
+
+The proxy exposes Prometheus metrics at `GET /metrics` (no auth; scrape-only, bind accordingly):
+
+- `openfusion_requests_total{route,outcome}` — client-facing requests (`fusion` / `pass_through`).
+- `openfusion_upstream_requests_total{phase,outcome}` — upstream calls by `panel` / `judge` / `pass_through`.
+- `openfusion_panel_members_total{outcome}` — per-member success vs. degraded failures.
+- `openfusion_tokens_total{phase,kind}` and `openfusion_cost_usd_total{phase}` — token and cost spend.
+- `openfusion_request_latency_ms` / `openfusion_upstream_latency_ms` — latency summaries (`_count` + `_sum`).
+
+Cost (`usage.cost`, when the upstream reports it) is also rolled into the per-request SSE
+`event: usage` payload and the non-streaming `usage` field, so a single fusion call shows what it
+spent across the panel and judge. Per-call structured logs remain on the `openfusion.upstream`
+logger.
 
 ## Stack
 

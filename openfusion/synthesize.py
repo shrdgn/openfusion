@@ -88,15 +88,18 @@ def _extract_finish_reason(chunk: dict[str, Any]) -> str | None:
     return reason if isinstance(reason, str) else None
 
 
-def _extract_usage(chunk: dict[str, Any]) -> dict[str, int] | None:
+def _extract_usage(chunk: dict[str, Any]) -> dict[str, float] | None:
     usage = chunk.get("usage")
     if not isinstance(usage, dict):
         return None
-    result: dict[str, int] = {}
+    result: dict[str, float] = {}
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         value = usage.get(key)
-        if isinstance(value, int):
+        if isinstance(value, int) and not isinstance(value, bool):
             result[key] = value
+    cost = usage.get("cost")
+    if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+        result["cost"] = float(cost)
     return result or None
 
 

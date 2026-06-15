@@ -33,6 +33,8 @@ class TaskResult:
     correct: bool
     answer: str
     latency_seconds: float
+    total_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 def _normalize(text: str) -> str:
@@ -72,7 +74,7 @@ def _chat(
     prompt: str,
     api_key: str,
     max_tokens: int,
-) -> tuple[str, float]:
+) -> tuple[str, float, dict[str, Any]]:
     started = time.perf_counter()
     response = client.post(
         f"{base_url.rstrip('/')}/chat/completions",
@@ -89,7 +91,8 @@ def _chat(
     response.raise_for_status()
     payload = response.json()
     answer = payload["choices"][0]["message"]["content"]
-    return str(answer), time.perf_counter() - started
+    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    return str(answer), time.perf_counter() - started, usage
 
 
 def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
@@ -101,7 +104,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     results: list[TaskResult] = []
     with httpx.Client() as client:
         for task in tasks:
-            solo_answer, solo_latency = _chat(
+            solo_answer, solo_latency, solo_usage = _chat(
                 client,
                 base_url=args.base_url,
                 model=solo_model,
@@ -116,10 +119,12 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     correct=_score(task, solo_answer),
                     answer=solo_answer,
                     latency_seconds=solo_latency,
+                    total_tokens=int(solo_usage.get("total_tokens", 0) or 0),
+                    cost_usd=float(solo_usage.get("cost", 0.0) or 0.0),
                 )
             )
 
-            fusion_answer, fusion_latency = _chat(
+            fusion_answer, fusion_latency, fusion_usage = _chat(
                 client,
                 base_url=args.base_url,
                 model=config.fusion_model_name,
@@ -134,6 +139,8 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
                     correct=_score(task, fusion_answer),
                     answer=fusion_answer,
                     latency_seconds=fusion_latency,
+                    total_tokens=int(fusion_usage.get("total_tokens", 0) or 0),
+                    cost_usd=float(fusion_usage.get("cost", 0.0) or 0.0),
                 )
             )
 
@@ -142,12 +149,16 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         correct = sum(1 for item in mode_results if item.correct)
         total = len(mode_results)
         avg_latency = sum(item.latency_seconds for item in mode_results) / max(total, 1)
+        total_tokens = sum(item.total_tokens for item in mode_results)
+        total_cost = sum(item.cost_usd for item in mode_results)
         return {
             "mode": mode,
             "correct": correct,
             "total": total,
             "accuracy": correct / total if total else 0.0,
             "avg_latency_seconds": avg_latency,
+            "total_tokens": total_tokens,
+            "total_cost_usd": total_cost,
         }
 
     return {

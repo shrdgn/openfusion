@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from openfusion.config import OpenFusionConfig, PanelMember, load_config
@@ -22,6 +23,7 @@ from openfusion.errors import (
     OpenFusionError,
     UpstreamError,
 )
+from openfusion.metrics import METRICS
 from openfusion.stream import buffer_synthesis, synthesize_and_stream
 from openfusion.upstream import UpstreamClient
 
@@ -60,6 +62,14 @@ def _error_response(exc: OpenFusionError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
 
+def _record_request(route: str, outcome: str, started: float) -> None:
+    METRICS.record_request(
+        route=route,
+        outcome=outcome,
+        latency_ms=(time.perf_counter() - started) * 1000,
+    )
+
+
 def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     app_config = config or load_config()
     upstream_client = UpstreamClient()
@@ -91,6 +101,13 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> PlainTextResponse:
+        return PlainTextResponse(
+            METRICS.render_prometheus(),
+            media_type="text/plain; version=0.0.4; charset=utf-8",
+        )
 
     @app.get("/v1/models")
     async def list_models(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
@@ -130,6 +147,8 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
         client: UpstreamClient = Depends(get_client),
         authorization: str | None = Header(default=None),
     ) -> Any:
+        started = time.perf_counter()
+        route = "fusion"
         try:
             _validate_gateway_auth(cfg, authorization)
             body = await request.json()
@@ -145,26 +164,36 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             stream = bool(body.get("stream", False))
 
             if model != cfg.fusion_model_name or _has_tool_calls(body):
+                route = "pass_through"
                 limited_body = policy.apply_token_limit(
                     body,
                     RequestPhase.PASS_THROUGH,
                     reject_over_limit=True,
                 )
-                return await _pass_through(limited_body, cfg, client, stream=stream)
+                response = await _pass_through(
+                    limited_body, cfg, client, stream=stream, started=started
+                )
+                if not stream:
+                    _record_request(route, "success", started)
+                return response
 
             if cfg.judge is None:
                 raise InvalidRequestError("Judge must be configured for fusion requests")
             policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
 
             if stream:
-                return await _fusion_stream(request, body, cfg, client)
+                return await _fusion_stream(request, body, cfg, client, started=started)
             payload = await buffer_synthesis(body, cfg, client)
+            _record_request(route, "success", started)
             return JSONResponse(content=payload)
         except OpenFusionError as exc:
+            _record_request(route, "error", started)
             return _error_response(exc)
         except json.JSONDecodeError as exc:
+            _record_request(route, "error", started)
             return _error_response(InvalidRequestError(f"Invalid JSON: {exc}"))
         except Exception as exc:  # noqa: BLE001
+            _record_request(route, "error", started)
             return _error_response(UpstreamError(str(exc)))
 
     return app
@@ -176,6 +205,7 @@ async def _pass_through(
     client: UpstreamClient,
     *,
     stream: bool,
+    started: float,
 ) -> Any:
     pass_through = config.resolved_pass_through()
     member = PanelMember(
@@ -201,9 +231,16 @@ async def _pass_through(
             raise UpstreamError("Expected streaming upstream response")
 
         async def event_stream() -> AsyncIterator[str]:
-            async for chunk in result:
-                yield f"data: {json.dumps(chunk)}\n\n"
-            yield "data: [DONE]\n\n"
+            outcome = "success"
+            try:
+                async for chunk in result:
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception:
+                outcome = "error"
+                raise
+            finally:
+                _record_request("pass_through", outcome, started)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -217,11 +254,14 @@ async def _fusion_stream(
     body: dict[str, Any],
     config: OpenFusionConfig,
     client: UpstreamClient,
+    *,
+    started: float,
 ) -> StreamingResponse:
     cancel_event = asyncio.Event()
 
     async def event_stream() -> AsyncIterator[str]:
         task = asyncio.create_task(_watch_disconnect(request, cancel_event))
+        outcome = "success"
         try:
             async for line in synthesize_and_stream(
                 body,
@@ -232,11 +272,15 @@ async def _fusion_stream(
                 if cancel_event.is_set():
                     break
                 yield line
+        except Exception:
+            outcome = "error"
+            raise
         finally:
             cancel_event.set()
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+            _record_request("fusion", outcome, started)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
