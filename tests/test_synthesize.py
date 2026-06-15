@@ -27,6 +27,7 @@ def test_build_judge_messages_includes_panel_blocks() -> None:
     )
 
     assert messages[0]["role"] == "system"
+    assert "Honor the original user's output format" in messages[0]["content"]
     assert "### a" in messages[1]["content"]
     assert "second" in messages[1]["content"]
 

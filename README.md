@@ -28,6 +28,9 @@ export OPENROUTER_API_KEY=your-key-here
 openfusion --host 0.0.0.0 --port 8000
 ```
 
+For credit-conscious local testing, start from `openfusion.dev.yaml.example`. It uses a smaller
+two-sample recipe, a lower-cost OpenRouter model, and strict token ceilings.
+
 Use with the OpenAI Python SDK:
 
 ```python
@@ -82,6 +85,19 @@ client (Cursor / OpenAI SDK / anything)
 | `OPENFUSION_API_KEYS` | Comma-separated gateway allowlist (optional) |
 | `OPENFUSION_HOST` / `OPENFUSION_PORT` | Server bind address |
 
+## Cost safety and live smoke tests
+
+`cost_controls` in config caps `max_tokens` for pass-through, panel, and judge calls. Missing
+`max_tokens` values are filled from the configured ceiling; over-limit pass-through and judge
+requests return `400`, while internal panel calls clamp to their ceiling.
+
+Run the opt-in live OpenRouter smoke test only when you intend to spend a small number of credits:
+
+```bash
+export OPENROUTER_API_KEY=your-key
+python scripts/openrouter_smoke.py --config openfusion.dev.yaml.example --yes-spend-credits
+```
+
 ## Benchmarks
 
 Run the head-to-head benchmark (self-fusion vs solo model):
@@ -90,6 +106,8 @@ Run the head-to-head benchmark (self-fusion vs solo model):
 pip install -e ".[dev]"
 python bench/run.py --config openfusion.yaml.example --tasks bench/tasks/sample.jsonl
 ```
+
+Use `--tasks bench/tasks/smoke.jsonl --max-tokens 32` before larger benchmark runs.
 
 | Recipe | Tasks | Accuracy | Notes |
 |--------|-------|----------|-------|

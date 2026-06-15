@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
 from openfusion.config import (
+    CostControlsConfig,
     OpenFusionConfig,
     PanelMember,
     SelfFusionConfig,
@@ -86,6 +89,36 @@ async def test_gather_panel_degrades_on_member_failure(mock_router) -> None:
 
     assert len(result.responses) == 1
     assert len(result.failures) == 1
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_gather_panel_clamps_internal_max_tokens(mock_router) -> None:
+    def upstream_handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["max_tokens"] == 7
+        return httpx.Response(200, json=_completion("ok"))
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=upstream_handler
+    )
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        panel=[
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1", label="a"),
+        ],
+        timeouts=TimeoutsConfig(member_seconds=5, judge_seconds=5, total_seconds=15),
+        cost_controls=CostControlsConfig(panel_max_tokens=7),
+    )
+    client = UpstreamClient()
+
+    result = await gather_panel(
+        {"messages": [{"role": "user", "content": "hi"}], "max_tokens": 99},
+        config,
+        client,
+    )
+
+    assert len(result.responses) == 1
     await client.aclose()
 
 

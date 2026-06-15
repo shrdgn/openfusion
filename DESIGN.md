@@ -72,6 +72,9 @@ The edges where an OpenAI-compatible proxy lives or dies. Decided up front.
 - **Client param precedence.** The recipe owns panel sampling (self-fusion *varies* temp/seed, so a
   client `temperature` does NOT reach panel members). Client `max_tokens`, `stop`, `response_format`
   apply to the **judge** (the visible output). Documented in the README.
+- **Cost controls.** Configured token ceilings fill missing `max_tokens` values. Pass-through and
+  judge calls reject client values above the ceiling; panel calls clamp internally because panel
+  output is intermediate and should not let one large client value multiply across N calls.
 - **Usage is best-effort.** Request `stream_options: {include_usage: true}` from the judge upstream;
   sum non-streamed panel usage when present. If an upstream omits usage, prefer omitting the field;
   a local tokenizer estimate is allowed only when clearly flagged as an estimate. Per-member
@@ -113,6 +116,8 @@ The edges where an OpenAI-compatible proxy lives or dies. Decided up front.
 - **Non-streaming requests** — support `stream: false` by buffering the judge (trivial, do it).
 - **"Beats frontier" honesty** — the in-repo bar is "a measurable lift on a small eval," not
   "beats Fable." Claim only what `bench/` shows.
+- **Provider budgets** — token ceilings reduce accidental spend but do not replace provider-side
+  budgets, per-key rate limits, or alerting.
 
 ## Build order
 

@@ -1,0 +1,3 @@
+{"id": "smoke-math", "prompt": "What is 6 * 7? Reply with only the number.", "expected": "42", "match": "exact"}
+{"id": "smoke-logic", "prompt": "If every fern is a plant, is every fern a plant? Reply yes or no only.", "expected": "yes", "match": "exact"}
+{"id": "smoke-fact", "prompt": "What chemical symbol represents water? Reply with only the formula.", "expected": "H2O", "match": "exact"}

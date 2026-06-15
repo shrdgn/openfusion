@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from openfusion.config import OpenFusionConfig, PanelMember, Strategy
+from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.upstream import UpstreamClient
 
@@ -100,6 +101,7 @@ async def _call_member(
     client: UpstreamClient,
     member: PanelMember,
     request_body: dict[str, Any],
+    config: OpenFusionConfig,
     overrides: dict[str, Any],
     *,
     timeout: float,
@@ -108,6 +110,11 @@ async def _call_member(
     body = copy.deepcopy(request_body)
     body.pop("model", None)
     body.pop("stream", None)
+    body = CostPolicy(config.cost_controls).apply_token_limit(
+        body,
+        RequestPhase.PANEL,
+        reject_over_limit=False,
+    )
     for key in ("temperature", "seed"):
         if key in overrides:
             body[key] = overrides[key]
@@ -123,7 +130,13 @@ async def _call_member(
 
         try:
             payload = await asyncio.wait_for(
-                client.chat_completion(member, body, stream=False, timeout=remaining),
+                client.chat_completion(
+                    member,
+                    body,
+                    stream=False,
+                    timeout=remaining,
+                    phase=RequestPhase.PANEL,
+                ),
                 timeout=remaining,
             )
             if not isinstance(payload, dict):
@@ -171,6 +184,7 @@ async def gather_panel(
                 client,
                 member,
                 request_body,
+                config,
                 overrides,
                 timeout=timeout,
                 cancel_event=cancel,
