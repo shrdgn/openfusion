@@ -26,3 +26,10 @@ startup update script).
   `GET /healthz` works without any upstream, but actual completions require one.
 - Panel members are called **non-streaming**; the judge is called **streaming**. A mock upstream
   must support both modes of `POST /v1/chat/completions` for fusion to work.
+- openfusion forwards the client request body to the upstream as-is. If the client omits
+  `max_tokens`, the upstream applies its own (often large) default, which can fail on
+  credit-limited provider keys (HTTP 402). For real OpenRouter runs on a low-credit key, pass a
+  small `max_tokens` (e.g. `80`) in the request.
+- tmux note: the tmux server may predate secret injection, so sessions started later won't see
+  `OPENROUTER_API_KEY`. Start the session with `tmux ... new-session -e "OPENROUTER_API_KEY=$OPENROUTER_API_KEY"`
+  (from a shell that already has the secret) before launching the server for real upstream runs.
