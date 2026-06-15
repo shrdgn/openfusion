@@ -1,8 +1,10 @@
 name: Benchmark
 
 # Runs the self-fusion vs solo head-to-head against a live OpenRouter key.
-# Manual dispatch only: this spends real provider credits. Defaults are the
-# cheap smoke set with a low token ceiling.
+# This spends real provider credits, so it never runs on normal pushes/PRs.
+# Two ways to start it, both defaulting to the cheap smoke set + low ceiling:
+#   1. Actions tab -> Benchmark -> Run workflow (manual dispatch, overridable).
+#   2. Push a branch under run-bench/** (e.g. run-bench/smoke) to fire it.
 
 on:
   workflow_dispatch:
@@ -19,12 +21,18 @@ on:
         description: "Per-call output cap (both solo and fusion)"
         default: "32"
         type: string
+  push:
+    branches:
+      - "run-bench/**"
 
 jobs:
   benchmark:
     runs-on: ubuntu-latest
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      CONFIG: ${{ github.event.inputs.config || 'openfusion.dev.yaml.example' }}
+      TASKS: ${{ github.event.inputs.tasks || 'bench/tasks/smoke.jsonl' }}
+      MAX_TOKENS: ${{ github.event.inputs.max_tokens || '32' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,7 +53,7 @@ jobs:
 
       - name: Start openfusion
         run: |
-          OPENFUSION_CONFIG="${{ inputs.config }}" \
+          OPENFUSION_CONFIG="$CONFIG" \
             openfusion --host 127.0.0.1 --port 8000 > server.log 2>&1 &
           echo $! > server.pid
           for i in $(seq 1 30); do
@@ -63,15 +71,15 @@ jobs:
         run: |
           mkdir -p bench/results
           python bench/run.py \
-            --config "${{ inputs.config }}" \
-            --tasks "${{ inputs.tasks }}" \
-            --max-tokens "${{ inputs.max_tokens }}" \
+            --config "$CONFIG" \
+            --tasks "$TASKS" \
+            --max-tokens "$MAX_TOKENS" \
             --output bench/results/latest.json
 
       - name: Write job summary
         if: always()
         run: |
-          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          python - <<'PY' | tee -a "$GITHUB_STEP_SUMMARY"
           import json
           import pathlib
 
