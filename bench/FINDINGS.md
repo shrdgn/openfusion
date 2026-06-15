@@ -55,7 +55,9 @@ judge), not publication-grade.
 - **Tool-enabled fusion is the next build** — panel members must run with web
   search/fetch instead of being passed through to a single model. Our data says
   it is the *only* untested lever that can make synthesis beat the best
-  component.
+  component. *(Capability landed: set `tools.web_search: true` to inject the
+  upstream web plugin into panel calls — see `openfusion.panel-tools.yaml.example`.
+  Still needs a web-dependent eval to demonstrate the lift.)*
 - A credible "matches frontier for less" claim also needs a **frontier solo
   baseline** (not just the best budget member) and a **rubric-graded harness**
   (DRACO is public: `hf.co/datasets/perplexity-ai/draco`; grader:

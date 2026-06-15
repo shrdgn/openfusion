@@ -74,6 +74,19 @@ class CostControlsConfig(BaseModel):
     judge_max_tokens: int | None = Field(default=None, ge=1)
 
 
+class ToolsConfig(BaseModel):
+    """Server-side tools made available to panel members (and optionally the judge).
+
+    Leans on the upstream's server-side web plugin (e.g. OpenRouter's Exa-backed
+    `web` plugin), which executes search upstream and returns a normal content
+    answer — so no client-side tool-call loop is needed.
+    """
+
+    web_search: bool = False
+    max_results: int = Field(default=5, ge=1, le=20)
+    apply_to_judge: bool = False
+
+
 class PassThroughConfig(BaseModel):
     """Single upstream used for non-fusion model pass-through and tool calls."""
 
@@ -96,6 +109,7 @@ class OpenFusionConfig(BaseModel):
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     gateway: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
     cost_controls: CostControlsConfig = Field(default_factory=CostControlsConfig)
+    tools: ToolsConfig = Field(default_factory=ToolsConfig)
     pass_through: PassThroughConfig | None = None
     fusion_model_name: str = "openfusion"
 

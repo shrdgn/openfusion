@@ -12,6 +12,7 @@ from openfusion.config import OpenFusionConfig, PanelMember, Strategy
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.metrics import METRICS
+from openfusion.tools import apply_web_tools
 from openfusion.upstream import UpstreamClient
 
 
@@ -130,6 +131,10 @@ async def _call_member(
     for key in ("temperature", "seed"):
         if key in overrides:
             body[key] = overrides[key]
+
+    # Give panel members server-side web search when configured, so they can
+    # gather complementary evidence for the judge to synthesize.
+    body = apply_web_tools(body, config.tools)
 
     deadline = asyncio.get_running_loop().time() + timeout
     attempt = 0

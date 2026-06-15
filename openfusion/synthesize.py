@@ -10,6 +10,7 @@ from openfusion.config import JudgeConfig, OpenFusionConfig
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult
+from openfusion.tools import apply_web_tools
 from openfusion.upstream import UpstreamClient
 
 JUDGE_SYSTEM_PROMPT = (
@@ -132,6 +133,8 @@ async def synthesize(
         RequestPhase.JUDGE,
         reject_over_limit=True,
     )
+    if config.tools.apply_to_judge:
+        judge_body = apply_web_tools(judge_body, config.tools)
 
     stream = await client.chat_completion(
         judge_member,

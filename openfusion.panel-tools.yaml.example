@@ -1,0 +1,51 @@
+# Diverse panel WITH server-side web search enabled on each panel member.
+# This is the tool-enabled-fusion setup: panelists do real research (via the
+# upstream's Exa-backed web plugin) and the judge synthesizes their evidence.
+# Per bench/FINDINGS.md, this is the lever expected to finally make synthesis
+# beat the best individual member — but only on web-dependent questions.
+
+strategy: panel
+aggregator: judge
+
+tools:
+  web_search: true
+  max_results: 5
+  apply_to_judge: false  # panelists gather evidence; the judge just synthesizes
+
+cost_controls:
+  pass_through_max_tokens: 512
+  panel_max_tokens: 512
+  judge_max_tokens: 512
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: panel-openai
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: deepseek/deepseek-v4-pro
+    label: panel-deepseek
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: moonshotai/kimi-k2.6
+    label: panel-kimi
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: deepseek/deepseek-v4-pro
+  max_panel_tokens: 8000
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+timeouts:
+  member_seconds: 180
+  judge_seconds: 180
+  total_seconds: 340
+
+gateway:
+  api_keys: []
