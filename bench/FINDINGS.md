@@ -28,6 +28,7 @@ judge), not publication-grade.
 | Open-ended | diverse panel (judge) | **weakest** member (gpt-4o-mini) | **97%** | 85–99% | ~23× |
 | Open-ended | diverse panel, cheap synth | **best** member (deepseek-v4-pro) | 51% | 36–66% | ~2.5× |
 | Open-ended | diverse panel, strong synth | **best** member (deepseek-v4-pro) | **29%** | 17–46% | ~4× |
+| Web-dependent, **tools on both sides** | diverse panel w/ web_search+fetch | **best** member (deepseek-v4-pro, also w/ tools) | **79%** | 52–92% | ~2× |
 
 ## What it means
 
@@ -45,23 +46,32 @@ judge), not publication-grade.
    synthesizer ties (51%), and a **strong** synthesizer *loses* (29%) because
    reconciling weaker panelists' answers anchors and dilutes a model that would
    have answered better alone. All at 2.5–4× the cost.
-5. **The lift requires tools.** OpenRouter's "beyond frontier" result (DRACO)
-   gave every panelist `web_search`/`web_fetch`, so panelists gather
-   *complementary evidence* worth synthesizing. Without tools, every panelist
-   draws on the same parametric knowledge — there is nothing to fuse.
+5. **The lift requires tools — and with tools, synthesis clearly wins.** This
+   is the headline reversal. When *both* sides get the same agentic tools
+   (`openrouter:web_search` + `web_fetch`), the diverse panel beat its own best
+   member **79%** (11–3, CI 52–92%) on web-dependent questions — the first
+   decisive fusion win in the whole arc. The tool-free "synthesis is worthless"
+   results (#3–4) were a **regime artifact**: without tools every panelist
+   regurgitates the same parametric answer, so there is nothing to fuse; with
+   tools they take different search/fetch trajectories → complementary evidence
+   → the synthesis step has real material to work with. This matches OpenRouter:
+   even *self*-fusion (same model twice) lifts +6.7 pts on DRACO *with* tools,
+   vs. no lift in our tool-free self-fusion test.
 
 ## Implication for the roadmap
 
-- **Tool-enabled fusion is the next build** — panel members must run with web
-  search/fetch instead of being passed through to a single model. Our data says
-  it is the *only* untested lever that can make synthesis beat the best
-  component. *(Capability landed: set `tools.web_search: true` to inject the
-  upstream web plugin into panel calls — see `openfusion.panel-tools.yaml.example`.
-  Still needs a web-dependent eval to demonstrate the lift.)*
-- A credible "matches frontier for less" claim also needs a **frontier solo
-  baseline** (not just the best budget member) and a **rubric-graded harness**
-  (DRACO is public: `hf.co/datasets/perplexity-ai/draco`; grader:
-  `github.com/The-LLM-Data-Company/rubric`).
+- **Tool-enabled fusion works — it shipped and is validated.** Set
+  `tools.web_search: true` (+ `web_fetch`) to give panel members the agentic
+  `openrouter:web_search`/`web_fetch` server tools; see
+  `openfusion.panel-tools.yaml.example`. The corrected gate (tools on both
+  sides) confirmed the lift. Run it with `run-bench/research-paneltools`.
+- **Next: DRACO for the quotable number.** The gate is small-N (14 decided,
+  wide CI) and uses a pairwise judge that can't verify currency. A credible
+  "matches frontier for less" claim needs the rubric-graded benchmark — DRACO
+  is public (`hf.co/datasets/perplexity-ai/draco`; grader:
+  `github.com/The-LLM-Data-Company/rubric`), tools already identical across
+  configs, and `excluded_domains` is wired for rubric-contamination control.
+  Ideally add a frontier solo baseline (not just the best budget member).
 
 ## Caveats
 
