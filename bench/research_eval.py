@@ -23,6 +23,7 @@ import httpx
 
 from bench.run import _chat
 from openfusion.config import load_config
+from openfusion.tools import build_web_tools
 
 GRADE_PROMPT = (
     "You are a strict, impartial evaluator comparing two answers to a technical "
@@ -117,6 +118,13 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
     judge_model = args.judge_model or config.resolved_pass_through().model
     gateway_key = config.gateway.api_keys[0] if config.gateway.api_keys else "bench-key"
 
+    # Fair comparison: give the solo baseline the same server tools the panel
+    # gets (openfusion injects them into panel calls; here we attach them to the
+    # solo request, which the gateway forwards to the upstream). Both sides then
+    # differ only in whether multiple models' outputs are synthesized.
+    solo_tools = build_web_tools(config.tools)
+    solo_extra = {"tools": solo_tools} if solo_tools else None
+
     results: list[PairResult] = []
     errors: list[str] = []
     with httpx.Client() as client:
@@ -129,6 +137,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     prompt=task.prompt,
                     api_key=gateway_key,
                     max_tokens=args.max_tokens,
+                    extra_body=solo_extra,
                 )
                 fusion_answer, _, fusion_usage = _chat(
                     client,
@@ -177,7 +186,15 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                 )
             )
 
-    return summarize(args, solo_model, judge_model, config.fusion_model_name, results, errors)
+    return summarize(
+        args,
+        solo_model,
+        judge_model,
+        config.fusion_model_name,
+        results,
+        errors,
+        solo_tools=[t["type"] for t in (solo_tools or [])],
+    )
 
 
 def summarize(
@@ -187,6 +204,7 @@ def summarize(
     fusion_model: str,
     results: list[PairResult],
     errors: list[str] | None = None,
+    solo_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     errors = errors or []
     fusion_wins = sum(1 for r in results if r.winner == "fusion")
@@ -202,6 +220,7 @@ def summarize(
         "solo_model": solo_model,
         "fusion_model": fusion_model,
         "judge_model": judge_model,
+        "solo_tools": solo_tools or [],
         "max_tokens": args.max_tokens,
         "summary": {
             "n": len(results),

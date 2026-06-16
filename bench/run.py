@@ -95,18 +95,22 @@ def _chat(
     max_tokens: int,
     temperature: float = 0.0,
     timeout: float = 360.0,
+    extra_body: dict[str, Any] | None = None,
 ) -> tuple[str, float, dict[str, Any]]:
     started = time.perf_counter()
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if extra_body:
+        payload.update(extra_body)
     response = client.post(
         f"{base_url.rstrip('/')}/chat/completions",
         headers={"Authorization": f"Bearer {api_key}"},
-        json={
-            "model": model,
-            "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
+        json=payload,
         timeout=timeout,
     )
     response.raise_for_status()

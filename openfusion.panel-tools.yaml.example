@@ -8,14 +8,17 @@ strategy: panel
 aggregator: judge
 
 tools:
-  web_search: true
+  web_search: true       # openrouter:web_search server tool (agentic, Exa-backed)
+  web_fetch: true         # openrouter:web_fetch server tool
   max_results: 5
-  apply_to_judge: false  # panelists gather evidence; the judge just synthesizes
+  engine: auto
+  apply_to_judge: false   # panelists gather evidence; the judge just synthesizes
+  # excluded_domains: []  # for benchmark contamination control (e.g. DRACO rubric hosts)
 
 cost_controls:
-  pass_through_max_tokens: 512
-  panel_max_tokens: 512
-  judge_max_tokens: 512
+  pass_through_max_tokens: 1024
+  panel_max_tokens: 1024
+  judge_max_tokens: 1024
 
 panel:
   - base_url: https://openrouter.ai/api/v1

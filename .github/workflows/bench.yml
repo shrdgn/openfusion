@@ -64,7 +64,7 @@ jobs:
       DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
       LIMIT: ${{ github.event.inputs.limit || '40' }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
-      MAX_TOKENS: ${{ github.event.inputs.max_tokens || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32') }}
+      MAX_TOKENS: ${{ github.event.inputs.max_tokens || (contains(github.ref_name, 'tools') && '1024' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32')) }}
       EVAL: ${{ contains(github.ref_name, 'research') && 'research' || 'accuracy' }}
       # Research eval task file: web-dependent questions for the tools preset,
       # otherwise the standard tool-free research set.
@@ -158,7 +158,10 @@ jobs:
               rate_str = f"{rate * 100:.0f}%" if rate is not None else "n/a"
               ci = s.get("fusion_win_rate_ci95")
               ci_str = f"{ci[0] * 100:.0f}–{ci[1] * 100:.0f}%" if ci else "n/a"
-              print(f"- Judge model: `{report['judge_model']}` (blind pairwise)\n")
+              print(f"- Judge model: `{report['judge_model']}` (blind pairwise)")
+              tools = report.get("solo_tools") or []
+              tools_str = ", ".join(t.replace("openrouter:", "") for t in tools) or "none"
+              print(f"- Tools (both solo & panel): {tools_str}\n")
               print("| Metric | Value |")
               print("|--------|-------|")
               print(f"| Questions | {s['n']} |")

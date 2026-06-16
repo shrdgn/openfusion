@@ -77,13 +77,18 @@ class CostControlsConfig(BaseModel):
 class ToolsConfig(BaseModel):
     """Server-side tools made available to panel members (and optionally the judge).
 
-    Leans on the upstream's server-side web plugin (e.g. OpenRouter's Exa-backed
-    `web` plugin), which executes search upstream and returns a normal content
-    answer — so no client-side tool-call loop is needed.
+    Uses OpenRouter's agentic server tools (`openrouter:web_search` /
+    `openrouter:web_fetch`), which the model calls in a loop and OpenRouter
+    executes upstream, returning a final content answer — so no client-side
+    tool-call loop is needed. `excluded_domains` is forwarded to web_search
+    (and as blocked_domains to web_fetch) to prevent benchmark contamination.
     """
 
     web_search: bool = False
+    web_fetch: bool = True
     max_results: int = Field(default=5, ge=1, le=20)
+    engine: str = "auto"  # auto | native | exa
+    excluded_domains: list[str] = Field(default_factory=list)
     apply_to_judge: bool = False
 
 
