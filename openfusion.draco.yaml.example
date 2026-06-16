@@ -1,0 +1,62 @@
+# DRACO deep-research benchmark config: diverse budget panel with agentic web
+# tools on every model. excluded_domains blocks the benchmark's own hosts so
+# panel/solo can't retrieve the grading rubric (the contamination risk
+# OpenRouter flagged). Pairs with bench/draco_eval.py and run-bench/draco.
+
+strategy: panel
+aggregator: judge
+
+tools:
+  web_search: true
+  web_fetch: true
+  max_results: 5
+  engine: auto
+  apply_to_judge: false
+  excluded_domains:
+    - huggingface.co
+    - arxiv.org
+    - perplexity.ai
+    - r2cdn.perplexity.ai
+    - research.perplexity.ai
+    - researchgate.net
+
+# Deep-research answers are long and well-cited; give them room.
+cost_controls:
+  pass_through_max_tokens: 2048
+  panel_max_tokens: 2048
+  judge_max_tokens: 2048
+
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: google/gemini-3-flash-preview
+    label: panel-gemini
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: moonshotai/kimi-k2.6
+    label: panel-kimi
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: deepseek/deepseek-v4-pro
+    label: panel-deepseek
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: deepseek/deepseek-v4-pro
+  max_panel_tokens: 16000
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: deepseek/deepseek-v4-pro
+
+# Agentic tool loops + long answers are slow; widen the budgets and keep the
+# total under the bench client's 360s timeout.
+timeouts:
+  member_seconds: 240
+  judge_seconds: 180
+  total_seconds: 350
+
+gateway:
+  api_keys: []

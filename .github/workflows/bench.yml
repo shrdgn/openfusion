@@ -17,6 +17,9 @@ name: Benchmark
 #                                          model (deepseek-v4-pro): does a strong synthesizer beat the best member?
 #        run-bench/research-paneltools -> diverse panel WITH server-side web search (panel-tools config),
 #                                          web.jsonl questions, solo baseline = best member: do tools let fusion win?
+#        run-bench/draco-probe -> just print the DRACO dataset schema (no model calls, ~free)
+#        run-bench/draco       -> DRACO deep-research, rubric-graded solo vs fusion (draco config),
+#                                 tools on both sides, solo = best member; LIMIT defaults to 10
 
 on:
   workflow_dispatch:
@@ -60,19 +63,21 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.
       # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
-      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'tools') && 'openfusion.panel-tools.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'openfusion.panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example'))))) }}
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'draco') && 'openfusion.draco.yaml.example' || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'tools') && 'openfusion.panel-tools.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'openfusion.panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')))))) }}
       DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
-      LIMIT: ${{ github.event.inputs.limit || '40' }}
+      LIMIT: ${{ github.event.inputs.limit || (contains(github.ref_name, 'draco') && '10' || '40') }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}
-      MAX_TOKENS: ${{ github.event.inputs.max_tokens || (contains(github.ref_name, 'tools') && '1024' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32')) }}
-      EVAL: ${{ contains(github.ref_name, 'research') && 'research' || 'accuracy' }}
+      MAX_TOKENS: ${{ github.event.inputs.max_tokens || (contains(github.ref_name, 'draco') && '2048' || (contains(github.ref_name, 'tools') && '1024' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && '512' || '32'))) }}
+      EVAL: ${{ contains(github.ref_name, 'draco') && 'draco' || (contains(github.ref_name, 'research') && 'research' || 'accuracy') }}
+      # 'draco-probe' in the branch -> just print the dataset schema, no model calls.
+      PROBE: ${{ contains(github.ref_name, 'probe') && '1' || '' }}
       # Research eval task file: web-dependent questions for the tools preset,
       # otherwise the standard tool-free research set.
       RESEARCH_TASKS: ${{ contains(github.ref_name, 'tools') && 'bench/tasks/web.jsonl' || 'bench/tasks/research.jsonl' }}
       JUDGE_MODEL: ${{ github.event.inputs.judge_model || 'google/gemini-3-flash-preview' }}
       # 'panelstrong' and 'tools' override the solo baseline to the strongest panel
       # member so we ask whether fusion beats its best component (not just panel[0]).
-      SOLO_MODEL: ${{ github.event.inputs.solo_model || ((contains(github.ref_name, 'panelstrong') || contains(github.ref_name, 'tools')) && 'deepseek/deepseek-v4-pro' || '') }}
+      SOLO_MODEL: ${{ github.event.inputs.solo_model || ((contains(github.ref_name, 'panelstrong') || contains(github.ref_name, 'tools') || contains(github.ref_name, 'draco')) && 'deepseek/deepseek-v4-pro' || '') }}
     steps:
       - uses: actions/checkout@v4
 
@@ -110,7 +115,24 @@ jobs:
       - name: Run benchmark
         run: |
           mkdir -p bench/results
-          if [ "$EVAL" = "research" ]; then
+          if [ "$EVAL" = "draco" ]; then
+            if [ -n "$PROBE" ]; then
+              echo "Probing DRACO dataset schema (no model calls)"
+              python -m bench.draco --probe --limit 3
+            else
+              echo "Running: draco_eval with $CONFIG, judge $JUDGE_MODEL, solo ${SOLO_MODEL:-panel[0]}, limit $LIMIT"
+              SOLO_ARG=""
+              if [ -n "$SOLO_MODEL" ]; then SOLO_ARG="--solo-model $SOLO_MODEL"; fi
+              python bench/draco_eval.py \
+                --config "$CONFIG" \
+                --limit "$LIMIT" \
+                --judge-model "$JUDGE_MODEL" \
+                $SOLO_ARG \
+                --answer-tokens "$MAX_TOKENS" \
+                --grading-runs 1 \
+                --output bench/results/latest.json
+            fi
+          elif [ "$EVAL" = "research" ]; then
             SOLO_ARG=""
             if [ -n "$SOLO_MODEL" ]; then SOLO_ARG="--solo-model $SOLO_MODEL"; fi
             echo "Running: research_eval (pairwise) with $CONFIG, judge $JUDGE_MODEL, solo ${SOLO_MODEL:-panel[0]}"
@@ -148,11 +170,36 @@ jobs:
 
           print("## openfusion benchmark\n")
           print(f"- Config: `{report['config']}`")
-          print(f"- Tasks: `{report['tasks_file']}`")
+          if report.get("tasks_file"):
+              print(f"- Tasks: `{report['tasks_file']}`")
           print(f"- Solo model: `{report['solo_model']}`  Fusion: `{report['fusion_model']}`")
-          print(f"- max_tokens: {report['max_tokens']}\n")
+          tok = report.get("max_tokens") or report.get("answer_tokens")
+          print(f"- max_tokens: {tok}\n")
 
-          if report.get("eval") == "research_pairwise":
+          if report.get("eval") == "draco_rubric":
+              s = report["summary"]
+              tools = report.get("solo_tools") or []
+              tools_str = ", ".join(t.replace("openrouter:", "") for t in tools) or "none"
+              def pct(v):
+                  return f"{v:.1f}%" if v is not None else "n/a"
+              print(f"- Judge model: `{report['judge_model']}` (rubric grading)")
+              print(f"- Tools (both solo & panel): {tools_str}")
+              print(f"- Grading runs: {report.get('grading_runs')}\n")
+              print("| Metric | Value |")
+              print("|--------|-------|")
+              print(f"| Tasks scored | {s['n']} |")
+              print(f"| Errors (skipped) | {s['errors']} |")
+              print(f"| Solo mean score | {pct(s['solo_mean'])} |")
+              print(f"| Fusion mean score | {pct(s['fusion_mean'])} |")
+              print(f"| Delta (fusion - solo) | {pct(s['delta_mean'])} |")
+              print(f"| Fusion better (of {s['paired_n']} paired) | {s['fusion_better']} |")
+              by_domain = s.get("by_domain") or {}
+              if by_domain:
+                  print("\n| Domain | Solo | Fusion |")
+                  print("|--------|------|--------|")
+                  for dom, v in by_domain.items():
+                      print(f"| {dom or '(none)'} | {pct(v['solo'])} | {pct(v['fusion'])} |")
+          elif report.get("eval") == "research_pairwise":
               s = report["summary"]
               rate = s["fusion_win_rate_decided"]
               rate_str = f"{rate * 100:.0f}%" if rate is not None else "n/a"
