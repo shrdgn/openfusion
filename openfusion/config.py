@@ -225,7 +225,11 @@ def _expand_env(value: Any) -> Any:
             env_name = match.group(1)
             env_value = os.environ.get(env_name)
             if env_value is None:
-                raise ValueError(f"Environment variable {env_name} is not set")
+                raise ValueError(
+                    f"Environment variable {env_name} is not set. "
+                    f"Export it before starting, e.g. `export {env_name}=...`, "
+                    f"or replace the ${{{env_name}}} placeholder in your config."
+                )
             return env_value
 
         return _ENV_PATTERN.sub(replacer, value)
@@ -253,7 +257,12 @@ def load_config(path: str | Path | None = None) -> OpenFusionConfig:
         if example.exists() and path is None:
             config_path = example
         else:
-            raise FileNotFoundError(f"Config file not found: {config_path}")
+            raise FileNotFoundError(
+                f"Config file not found: {config_path}. "
+                "Copy an example to get started, e.g. "
+                "`cp openfusion.preset.yaml.example openfusion.yaml`, "
+                "then set OPENROUTER_API_KEY."
+            )
 
     with config_path.open(encoding="utf-8") as handle:
         raw: dict[str, Any] = yaml.safe_load(handle) or {}

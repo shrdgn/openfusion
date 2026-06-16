@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use openfusion, please cite it using these metadata."
+title: "openfusion: an open-source drop-in compound-model proxy"
+abstract: >-
+  openfusion is an OpenAI-compatible proxy that fans a prompt out to a panel of
+  language models in parallel and has a judge model synthesize a single answer
+  (mixture-of-agents). It is the open implementation of the idea behind
+  OpenRouter Fusion, runnable on any OpenAI-compatible provider.
+type: software
+authors:
+  - name: "openfusion contributors"
+repository-code: "https://github.com/shahar-dagan/openfusion"
+url: "https://github.com/shahar-dagan/openfusion"
+license: MIT
+version: 0.1.0
+keywords:
+  - llm
+  - mixture-of-agents
+  - openai
+  - proxy
+  - fusion

@@ -1,5 +1,9 @@
 # openfusion
 
+[![CI](https://github.com/shahar-dagan/openfusion/actions/workflows/ci.yml/badge.svg)](https://github.com/shahar-dagan/openfusion/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+
 An open-source, drop-in compound-model proxy. Point any OpenAI-compatible tool at it,
 set `model: "openfusion"`, and your prompt is fanned out to a panel of LLMs in parallel —
 then a judge model reads every response (consensus, contradictions, blind spots) and streams
@@ -77,6 +81,23 @@ client (Cursor / OpenAI SDK / anything)
 - **No lock-in.** Each panel member + judge is `{base_url, api_key, model}`. OpenRouter is the
   default upstream; OpenAI, Together, local vLLM/Ollama all work.
 - **Config-driven.** Panel, judge, strategy, and timeouts live in `openfusion.yaml`.
+
+## openfusion vs. OpenRouter Fusion
+
+openfusion is the open implementation of the same idea. The core mechanism is at parity; the
+differences are scale and a per-prompt router.
+
+| | OpenRouter Fusion | openfusion |
+|---|---|---|
+| Parallel panel → judge synthesis | ✅ | ✅ |
+| Synthesis dimensions | consensus · contradictions · partial coverage · unique insights · blind spots | same |
+| Web search + fetch on the panel | ✅ (default) | ✅ (on by default with `preset:`) |
+| Quality / Budget presets | ✅ | ✅ (`preset: quality \| budget`) |
+| Override panel + judge | ✅ (plugin fields) | ✅ (any `{base_url, api_key, model}` in YAML) |
+| Per-call cost breakdown | ✅ (Activity) | ✅ (SSE `usage` event + `/metrics`) |
+| Self-hostable / forkable | ❌ closed API | ✅ MIT, any OpenAI-compatible provider |
+| Per-prompt Auto Router | ✅ | ❌ not yet (see [DESIGN.md](DESIGN.md)) |
+| Headline benchmark | full DRACO (100 tasks) | DRACO subset (10 tasks) — see [bench/FINDINGS.md](bench/FINDINGS.md) |
 
 ## Parameter precedence
 
