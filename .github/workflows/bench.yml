@@ -59,6 +59,11 @@ on:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
+    # Spends real OpenRouter credits. Bind the key to a protected `bench`
+    # environment so a run requires approval (and a key scoped to that
+    # environment). Create it under Settings -> Environments and add a required
+    # reviewer; until then GitHub auto-creates an unprotected environment.
+    environment: bench
     env:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.

@@ -16,6 +16,24 @@ from openfusion.config import ToolsConfig
 WEB_SEARCH_TYPE = "openrouter:web_search"
 WEB_FETCH_TYPE = "openrouter:web_fetch"
 
+# Tools the upstream executes server-side and folds into a final content answer.
+# A request whose tools are all server-executable can still be fused (panel
+# members run the loop upstream and return text); client-side function tools
+# cannot, because their results come back through the client.
+SERVER_EXECUTABLE_TOOL_TYPES = frozenset({WEB_SEARCH_TYPE, WEB_FETCH_TYPE})
+
+
+def tools_are_server_executable(tools: Any) -> bool:
+    """True when ``tools`` is a non-empty list of only server-executable tools."""
+    if not isinstance(tools, list) or not tools:
+        return False
+    for tool in tools:
+        if not isinstance(tool, dict):
+            return False
+        if tool.get("type") not in SERVER_EXECUTABLE_TOOL_TYPES:
+            return False
+    return True
+
 
 def build_web_tools(tools: ToolsConfig) -> list[dict[str, Any]]:
     """Return the OpenRouter server-tool definitions for the enabled web tools.

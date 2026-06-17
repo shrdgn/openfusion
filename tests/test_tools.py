@@ -8,7 +8,16 @@ from openfusion.tools import (
     WEB_SEARCH_TYPE,
     apply_web_tools,
     build_web_tools,
+    tools_are_server_executable,
 )
+
+
+def test_server_executable_detection() -> None:
+    assert tools_are_server_executable([{"type": WEB_SEARCH_TYPE}, {"type": WEB_FETCH_TYPE}])
+    assert not tools_are_server_executable([])
+    assert not tools_are_server_executable([{"type": "function", "function": {"name": "f"}}])
+    assert not tools_are_server_executable([{"type": WEB_SEARCH_TYPE}, {"type": "function"}])
+    assert not tools_are_server_executable("nope")
 
 
 def test_disabled_is_noop() -> None:

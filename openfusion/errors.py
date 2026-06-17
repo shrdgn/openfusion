@@ -69,3 +69,23 @@ class AuthenticationError(OpenFusionError):
             code="invalid_api_key",
             status_code=401,
         )
+
+
+class RateLimitError(OpenFusionError):
+    def __init__(self, message: str = "Rate limit exceeded") -> None:
+        super().__init__(
+            message,
+            error_type="rate_limit_error",
+            code="rate_limit_exceeded",
+            status_code=429,
+        )
+
+
+class OverloadedError(OpenFusionError):
+    def __init__(self, message: str = "Server busy: too many concurrent requests") -> None:
+        super().__init__(
+            message,
+            error_type="overloaded_error",
+            code="server_overloaded",
+            status_code=503,
+        )

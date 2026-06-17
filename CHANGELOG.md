@@ -7,6 +7,29 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Production limits** (`limits`) — optional concurrency cap (`max_in_flight`, over-limit → 503)
+  and per-gateway-key rate limiting (`rate_limit_per_minute`, over-limit → 429). Default unlimited.
+- **Model-classifier routing** (`router.mode: model`) — the Auto Router can call a small classifier
+  model to decide fuse-vs-solo, falling back to the heuristic on any error.
+- **Ranked-choice aggregator** (`aggregator: ranked`) — one short judge call picks the single best
+  panel answer; cheaper than synthesis, uses model judgment unlike majority vote.
+- **Analysis transparency** (`analysis.emit`) — surface the judge's structured reasoning
+  (consensus / contradictions / partial coverage / unique insights / blind spots) as a separate SSE
+  `event: analysis` and an `analysis` field on non-streaming responses.
+- **Prompt caching** (`cache.enabled`) — mark the self-fusion shared prefix with a `cache_control`
+  breakpoint so repeated samples reuse a cached prompt where the provider supports it.
+- **Auto Router** (`router.enabled`) — a per-prompt gate that answers simple prompts with a single
+  pass-through call and reserves the panel for prompts that benefit (long, analytical, or code).
+  Heuristic, no extra model call; `mode: heuristic | always | never`.
+- **Debate strategy** (`strategy: debate`) — a diverse panel where each member revises after seeing
+  the others' answers (`debate.rounds`) before the judge synthesizes.
+- **Fusion-aware tool calling** — requests whose tools are server-executable
+  (`openrouter:web_search`/`web_fetch`) now fuse instead of passing through; client-side function
+  tools and mid-conversation tool turns still pass through.
+- PyPI publish step in the release workflow, gated on a `PYPI_API_TOKEN` secret (no-op until set).
+- Benchmark workflow bound to a protected `bench` environment for spend control.
+
+### Added (earlier in this cycle)
 - `preset: quality | budget` config switch — expands to a diverse OpenRouter
   panel + judge with web search/fetch enabled by default (the regime where
   synthesis beats the best single member per `bench/FINDINGS.md`). Mirrors

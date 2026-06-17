@@ -12,6 +12,9 @@ permissions:
 jobs:
   build-and-publish:
     runs-on: ubuntu-latest
+    env:
+      # Publishing only happens once a PyPI token is configured as a repo secret.
+      HAS_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -48,8 +51,10 @@ jobs:
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ github.ref_name }}
 
-      # PyPI publish (enable when PYPI_API_TOKEN secret is configured)
-      # - name: Publish to PyPI
-      #   uses: pypa/gh-action-pypi-publish@release/v1
-      #   with:
-      #     password: ${{ secrets.PYPI_API_TOKEN }}
+      # Publishes to PyPI only when a PYPI_API_TOKEN secret is set; until then
+      # this step is skipped, so tagging still builds the wheel and image.
+      - name: Publish to PyPI
+        if: env.HAS_PYPI_TOKEN == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

@@ -8,6 +8,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 
+from openfusion.cache import mark_cache_breakpoint
 from openfusion.config import OpenFusionConfig, PanelMember, Strategy
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
@@ -136,6 +137,10 @@ async def _call_member(
     # gather complementary evidence for the judge to synthesize.
     body = apply_web_tools(body, config.tools)
 
+    # Mark the shared prefix so self-fusion's N samples reuse a cached prompt.
+    if config.cache.enabled:
+        body = mark_cache_breakpoint(body)
+
     deadline = asyncio.get_running_loop().time() + timeout
     attempt = 0
     while True:
@@ -174,6 +179,82 @@ async def _call_member(
                 await asyncio.sleep(backoff)
                 continue
             raise
+
+
+DEBATE_INSTRUCTION = (
+    "You previously answered the request below. Here are other independent experts' "
+    "answers to the same request. Consider where they are stronger, correct any of your "
+    "mistakes, and incorporate anything they got right. Then write your single improved "
+    "answer. Do not mention the other experts or that you revised."
+)
+
+
+def _build_revision_messages(
+    original_messages: list[dict[str, Any]],
+    own: MemberResponse,
+    peers: list[MemberResponse],
+) -> list[dict[str, Any]]:
+    peer_text = "\n\n".join(f"### Expert {i + 1}\n{peer.content}" for i, peer in enumerate(peers))
+    user_messages = [m for m in original_messages if m.get("role") != "system"]
+    original_user_text = "\n".join(
+        str(m.get("content", "")) for m in user_messages if m.get("content")
+    )
+    prompt = (
+        f"{DEBATE_INSTRUCTION}\n\n"
+        f"Original request:\n{original_user_text}\n\n"
+        f"Your previous answer:\n{own.content}\n\n"
+        f"Other experts' answers:\n{peer_text}"
+    )
+    return [{"role": "user", "content": prompt}]
+
+
+async def _run_debate_round(
+    request_body: dict[str, Any],
+    panel: PanelResult,
+    members_by_label: dict[str, tuple[PanelMember, dict[str, Any]]],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+    *,
+    timeout: float,
+    cancel_event: asyncio.Event,
+) -> PanelResult:
+    """One refinement round: each member revises after seeing its peers' answers."""
+    original_messages = request_body.get("messages")
+    if not isinstance(original_messages, list):
+        return panel
+    current = panel.responses
+
+    async def revise(response: MemberResponse) -> MemberResponse:
+        member_overrides = members_by_label.get(response.label)
+        if member_overrides is None:
+            return response
+        member, overrides = member_overrides
+        peers = [r for r in current if r.label != response.label]
+        if not peers:
+            return response
+        revise_body = copy.deepcopy(request_body)
+        revise_body["messages"] = _build_revision_messages(original_messages, response, peers)
+        try:
+            revised = await _call_member(
+                client,
+                member,
+                revise_body,
+                config,
+                overrides,
+                timeout=timeout,
+                cancel_event=cancel_event,
+            )
+        except (UpstreamError, TimeoutError):
+            return response  # keep the first-round answer if revision fails
+        # Carry forward token usage so cost reflects both rounds.
+        if revised.usage and response.usage:
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens", "cost"):
+                if key in response.usage:
+                    revised.usage[key] = revised.usage.get(key, 0) + response.usage[key]
+        return revised
+
+    revised = await asyncio.gather(*(revise(r) for r in current))
+    return PanelResult(responses=list(revised), failures=panel.failures)
 
 
 async def gather_panel(
@@ -246,5 +327,22 @@ async def gather_panel(
     if not result.responses:
         reasons = "; ".join(f"{failure.label}: {failure.reason}" for failure in result.failures)
         raise UpstreamError(f"All panel members failed: {reasons}")
+
+    if config.strategy == Strategy.DEBATE and len(result.responses) >= 2:
+        members_by_label = {
+            (member.label or member.model): (member, overrides) for member, overrides in members
+        }
+        for _ in range(config.debate.rounds):
+            if cancel.is_set():
+                break
+            result = await _run_debate_round(
+                request_body,
+                result,
+                members_by_label,
+                config,
+                client,
+                timeout=timeout,
+                cancel_event=cancel,
+            )
 
     return result

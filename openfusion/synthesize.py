@@ -21,6 +21,15 @@ JUDGE_SYSTEM_PROMPT = (
     "Do not mention the panel or that multiple answers existed."
 )
 
+ANALYSIS_SENTINEL = "===ANALYSIS==="
+
+ANALYSIS_INSTRUCTION = (
+    "\n\nAfter the answer, output a line containing exactly "
+    f"{ANALYSIS_SENTINEL} and then a single JSON object with keys: consensus, "
+    "contradictions, partial_coverage, unique_insights, blind_spots. Each value is "
+    "a short string or list of strings. Output nothing after the JSON."
+)
+
 
 def _estimate_tokens(text: str) -> int:
     # Rough heuristic until tokenizer integration is added.
@@ -123,8 +132,15 @@ async def synthesize(
 
     judge_member = judge.model_copy(update={"label": "judge"})
     judge_body = copy.deepcopy(request_body)
-    judge_body["messages"] = build_judge_messages(messages, panel, judge)
+    judge_messages = build_judge_messages(messages, panel, judge)
+    if config.analysis.emit and judge_messages:
+        judge_messages[0]["content"] += ANALYSIS_INSTRUCTION
+    judge_body["messages"] = judge_messages
     judge_body.pop("model", None)
+    # The judge synthesizes the final text answer; it must not emit tool calls.
+    # Client-supplied tools were already run by the panel (when server-executable).
+    for tool_key in ("tools", "tool_choice", "functions", "function_call"):
+        judge_body.pop(tool_key, None)
     judge_body["stream"] = True
     if request_body.get("stream_options"):
         judge_body["stream_options"] = request_body["stream_options"]

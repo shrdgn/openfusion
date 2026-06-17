@@ -110,8 +110,11 @@ The edges where an OpenAI-compatible proxy lives or dies. Decided up front.
 
 ## Open questions
 
-- **Tool/function calling** — MVP is text completions; tool-call requests pass through to a single
-  configured model (no fusion) until a fusion-aware tool strategy exists.
+- **Tool/function calling** — *partially resolved.* Server-executable web tools
+  (`openrouter:web_search`/`web_fetch`) now fuse: panel members run them upstream and the judge
+  synthesizes the results. Client-side function tools and mid-conversation tool turns still pass
+  through to a single model, since their results return through the client and can't be fused into
+  one answer without running each panelist's tool loop.
 - **Prompt-caching** for self-fusion's shared prefix — defer, measure first.
 - **Non-streaming requests** — support `stream: false` by buffering the judge (trivial, do it).
 - **"Beats frontier" honesty** — the in-repo bar is "a measurable lift on a small eval," not

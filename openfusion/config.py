@@ -19,6 +19,16 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 class Strategy(StrEnum):
     PANEL = "panel"
     SELF_FUSION = "self_fusion"
+    DEBATE = "debate"
+
+
+class RouterMode(StrEnum):
+    """How the pre-panel router decides between fusing and a single model."""
+
+    HEURISTIC = "heuristic"  # cheap prompt-shape signals decide
+    MODEL = "model"  # a small classifier model decides (falls back to heuristic)
+    ALWAYS = "always"  # always fuse
+    NEVER = "never"  # always answer with a single pass-through call
 
 
 class Preset(StrEnum):
@@ -63,6 +73,7 @@ class Aggregator(StrEnum):
 
     JUDGE = "judge"  # a judge model synthesizes one answer
     VOTE = "vote"  # majority vote over panel answers (self-consistency)
+    RANKED = "ranked"  # the judge picks the single best answer (no synthesis)
 
 
 class PanelMember(BaseModel):
@@ -93,6 +104,76 @@ class SelfFusionConfig(BaseModel):
     n: int = Field(default=3, ge=1, le=16)
     temperature_spread: list[float] = Field(default_factory=lambda: [0.3, 0.7, 1.0])
     seed_offset: bool = True
+
+
+_DEFAULT_FUSE_KEYWORDS = [
+    "compare",
+    "trade-off",
+    "tradeoff",
+    "analyze",
+    "analyse",
+    "evaluate",
+    "design",
+    "research",
+    "pros and cons",
+    "why",
+    "explain",
+    "critique",
+    "recommend",
+]
+
+
+class RouterConfig(BaseModel):
+    """Per-prompt gate: send simple prompts to a single model, fuse hard ones.
+
+    Disabled by default — when off, every `openfusion` request is fused. When on,
+    short/simple prompts are answered by one pass-through call (cheaper, faster)
+    and only prompts that look like they benefit from a panel are fused.
+    """
+
+    enabled: bool = False
+    mode: RouterMode = RouterMode.HEURISTIC
+    min_chars: int = Field(default=280, ge=0)
+    fuse_keywords: list[str] = Field(default_factory=lambda: list(_DEFAULT_FUSE_KEYWORDS))
+    # For mode=model: a small/cheap model that answers FUSE or SOLO. Falls back
+    # to the heuristic if unset or if the classification call fails.
+    classifier: PanelMember | None = None
+    classifier_max_tokens: int = Field(default=4, ge=1, le=64)
+
+
+class DebateConfig(BaseModel):
+    """Multi-round panel: members revise after seeing each other's answers."""
+
+    rounds: int = Field(default=1, ge=1, le=3)
+
+
+class LimitsConfig(BaseModel):
+    """Concurrency and per-key rate limits for serving public traffic.
+
+    Both default to 0 (unlimited), preserving the MVP behavior. ``max_in_flight``
+    caps concurrent fusion requests; ``rate_limit_per_minute`` is a fixed-window
+    cap per gateway key (or per client when no key is presented).
+    """
+
+    max_in_flight: int = Field(default=0, ge=0)
+    rate_limit_per_minute: int = Field(default=0, ge=0)
+
+
+class CacheConfig(BaseModel):
+    """Prompt caching for the self-fusion shared prefix (provider-dependent).
+
+    When enabled, panel calls mark the prompt with OpenRouter/Anthropic-style
+    ``cache_control`` breakpoints so the N self-fusion samples reuse the cached
+    prefix. A no-op on providers that ignore the marker.
+    """
+
+    enabled: bool = False
+
+
+class AnalysisConfig(BaseModel):
+    """Expose the judge's structured analysis as a separate SSE ``analysis`` event."""
+
+    emit: bool = False
 
 
 class TimeoutsConfig(BaseModel):
@@ -151,6 +232,11 @@ class OpenFusionConfig(BaseModel):
     panel: list[PanelMember] = Field(default_factory=list)
     judge: JudgeConfig | None = None
     self_fusion: SelfFusionConfig = Field(default_factory=SelfFusionConfig)
+    debate: DebateConfig = Field(default_factory=DebateConfig)
+    router: RouterConfig = Field(default_factory=RouterConfig)
+    limits: LimitsConfig = Field(default_factory=LimitsConfig)
+    cache: CacheConfig = Field(default_factory=CacheConfig)
+    analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     gateway: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)
     cost_controls: CostControlsConfig = Field(default_factory=CostControlsConfig)

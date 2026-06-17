@@ -61,6 +61,62 @@ for chunk in stream:
     print(chunk.choices[0].delta.content or "", end="")
 ```
 
+## Routing & strategies
+
+Three knobs control *whether* and *how* a prompt is fused. All are optional and off/default.
+
+- **Auto Router** (`router.enabled: true`) — a per-prompt gate that answers simple prompts with a
+  single pass-through call and reserves the panel for prompts that look like they benefit (long,
+  analytical, or containing code). Default is a cheap heuristic (no extra model call); `mode: model`
+  uses a small classifier model and falls back to the heuristic if it errors:
+
+  ```yaml
+  router:
+    enabled: true
+    mode: heuristic     # heuristic | model | always | never
+    min_chars: 280      # prompts at/over this length fuse
+    # classifier:       # required for mode: model
+    #   base_url: https://openrouter.ai/api/v1
+    #   api_key: ${OPENROUTER_API_KEY}
+    #   model: openai/gpt-4o-mini
+  ```
+
+- **Strategy** (`strategy:`) — how the panel is produced: `self_fusion` (one model sampled N times),
+  `panel` (a fixed diverse panel), or `debate` (a diverse panel where each member revises after
+  seeing the others' answers, then the judge synthesizes). Debate trades extra cost/latency for
+  cross-examination:
+
+  ```yaml
+  strategy: debate
+  debate:
+    rounds: 1           # revision rounds before the judge
+  ```
+
+- **Aggregator** (`aggregator:`) — how answers become one: `judge` (synthesis, default), `vote`
+  (majority vote, cheaper, best for verifiable short-answer tasks), or `ranked` (one short judge
+  call picks the single best answer — cheaper than synthesis, uses model judgment unlike vote).
+
+- **Analysis transparency** (`analysis.emit: true`) — surface the judge's structured reasoning
+  (consensus / contradictions / partial coverage / unique insights / blind spots) as a separate SSE
+  `event: analysis` (and an `analysis` field on non-streaming responses), without polluting the
+  answer body.
+
+- **Prompt caching** (`cache.enabled: true`) — mark the shared prefix so self-fusion's N samples
+  reuse a cached prompt on providers that support it (a no-op elsewhere).
+
+## Production limits
+
+For public deployments, bound load and spend (both default to `0` = unlimited):
+
+```yaml
+limits:
+  max_in_flight: 64           # cap concurrent requests; over-limit returns 503
+  rate_limit_per_minute: 60   # per gateway key (or per client when unauthenticated); over-limit returns 429
+```
+
+These are best-effort, single-process guards — pair them with provider-side budgets and, for
+multi-replica deployments, an edge rate limiter.
+
 ## How it works
 
 ```
@@ -96,7 +152,10 @@ differences are scale and a per-prompt router.
 | Override panel + judge | ✅ (plugin fields) | ✅ (any `{base_url, api_key, model}` in YAML) |
 | Per-call cost breakdown | ✅ (Activity) | ✅ (SSE `usage` event + `/metrics`) |
 | Self-hostable / forkable | ❌ closed API | ✅ MIT, any OpenAI-compatible provider |
-| Per-prompt Auto Router | ✅ | ❌ not yet (see [DESIGN.md](DESIGN.md)) |
+| Per-prompt Auto Router | ✅ | ✅ heuristic or model classifier (`router.enabled`) |
+| Structured analysis surfaced | ✅ | ✅ `analysis.emit` (SSE `analysis` event) |
+| Multi-round debate | — | ✅ `strategy: debate` |
+| Concurrency cap + rate limiting | ✅ | ✅ `limits` (best-effort, single-process) |
 | Headline benchmark | full DRACO (100 tasks) | DRACO subset (10 tasks) — see [bench/FINDINGS.md](bench/FINDINGS.md) |
 
 ## Parameter precedence
@@ -106,7 +165,7 @@ differences are scale and a per-prompt router.
 | `temperature` (client) | Judge only indirectly via recipe | Self-fusion varies panel temps from config, not client |
 | `max_tokens`, `stop`, `response_format` | Judge (visible output) | Panel members use recipe defaults |
 | `stream`, `stream_options` | Judge path | Panel always runs non-streamed internally |
-| `tools` / `tool_calls` | Pass-through only | Tool requests skip fusion in MVP |
+| `tools` / `tool_calls` | Fusion or pass-through | Server-executable web tools (`openrouter:web_search`/`web_fetch`) are fused; client-side function tools and mid-conversation tool turns pass through |
 
 ## Environment variables
 

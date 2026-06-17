@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.background import BackgroundTask
 
 from openfusion.config import Aggregator, OpenFusionConfig, PanelMember, load_config
 from openfusion.cost import CostPolicy, RequestPhase
@@ -23,31 +24,59 @@ from openfusion.errors import (
     OpenFusionError,
     UpstreamError,
 )
+from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
+from openfusion.router import RouteDecision, route_async
 from openfusion.stream import (
+    buffer_ranked,
     buffer_synthesis,
     buffer_vote,
+    ranked_and_stream,
     synthesize_and_stream,
     vote_and_stream,
 )
+from openfusion.tools import tools_are_server_executable
 from openfusion.upstream import UpstreamClient
 
 FUSION_MODEL = "openfusion"
 LANDING_PAGE_DIR = Path(__file__).resolve().parent / "static" / "landing"
 
 
-def _has_tool_calls(body: dict[str, Any]) -> bool:
+def _requires_pass_through_tools(body: dict[str, Any]) -> bool:
+    """True when the request carries tools that fusion can't handle.
+
+    A mid-conversation tool exchange (assistant ``tool_calls`` / ``tool`` results)
+    or client-side function tools must pass through to a single model. Tools the
+    upstream executes server-side (web search/fetch) are fine to fuse, because the
+    panel runs them upstream and returns a final text answer.
+    """
     messages = body.get("messages")
-    if not isinstance(messages, list):
-        return False
-    for message in messages:
-        if not isinstance(message, dict):
-            continue
-        if message.get("tool_calls"):
-            return True
-        if message.get("role") == "tool":
-            return True
-    return bool(body.get("tools") or body.get("functions"))
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            if message.get("tool_calls") or message.get("role") == "tool":
+                return True
+    if body.get("functions") or body.get("function_call"):
+        return True
+    tools = body.get("tools")
+    return bool(tools) and not tools_are_server_executable(tools)
+
+
+def _client_key(authorization: str | None) -> str:
+    """Identity for rate limiting: the gateway token, or 'anonymous'."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        if token:
+            return token
+    return "anonymous"
+
+
+def _attach_release(response: Any, limiter: RequestLimiter, acquired: bool) -> Any:
+    """Release the concurrency slot after the response (incl. stream) finishes."""
+    if acquired and getattr(response, "background", None) is None:
+        response.background = BackgroundTask(limiter.release, acquired)
+    return response
 
 
 def _validate_gateway_auth(
@@ -87,6 +116,7 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     app = FastAPI(title="openfusion", version="0.1.0", lifespan=lifespan)
     app.state.config = app_config
     app.state.upstream_client = upstream_client
+    app.state.limiter = RequestLimiter(app_config.limits)
     app.mount(
         "/landing",
         StaticFiles(directory=LANDING_PAGE_DIR),
@@ -153,9 +183,12 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
         authorization: str | None = Header(default=None),
     ) -> Any:
         started = time.perf_counter()
-        route = "fusion"
+        route_label = "fusion"
+        limiter: RequestLimiter = app.state.limiter
+        acquired = False
         try:
             _validate_gateway_auth(cfg, authorization)
+            limiter.check_rate(_client_key(authorization))
             body = await request.json()
             if not isinstance(body, dict):
                 raise InvalidRequestError("Request body must be a JSON object")
@@ -168,8 +201,18 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             policy.validate_max_tokens(body)
             stream = bool(body.get("stream", False))
 
-            if model != cfg.fusion_model_name or _has_tool_calls(body):
-                route = "pass_through"
+            wants_fusion = model == cfg.fusion_model_name and not _requires_pass_through_tools(
+                body
+            )
+            if wants_fusion and cfg.router.enabled:
+                decision = await route_async(body, cfg.router, client)
+                if decision == RouteDecision.SOLO:
+                    wants_fusion = False
+
+            acquired = limiter.acquire()
+
+            if not wants_fusion:
+                route_label = "pass_through"
                 limited_body = policy.apply_token_limit(
                     body,
                     RequestPhase.PASS_THROUGH,
@@ -179,31 +222,36 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
                     limited_body, cfg, client, stream=stream, started=started
                 )
                 if not stream:
-                    _record_request(route, "success", started)
-                return response
+                    _record_request(route_label, "success", started)
+                return _attach_release(response, limiter, acquired)
 
-            if cfg.aggregator == Aggregator.JUDGE:
+            if cfg.aggregator in (Aggregator.JUDGE, Aggregator.RANKED):
                 if cfg.judge is None:
                     raise InvalidRequestError("Judge must be configured for judge aggregation")
                 policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
 
             if stream:
-                return await _fusion_stream(request, body, cfg, client, started=started)
-            payload = (
-                await buffer_vote(body, cfg, client)
-                if cfg.aggregator == Aggregator.VOTE
-                else await buffer_synthesis(body, cfg, client)
-            )
-            _record_request(route, "success", started)
-            return JSONResponse(content=payload)
+                response = await _fusion_stream(request, body, cfg, client, started=started)
+                return _attach_release(response, limiter, acquired)
+            if cfg.aggregator == Aggregator.VOTE:
+                payload = await buffer_vote(body, cfg, client)
+            elif cfg.aggregator == Aggregator.RANKED:
+                payload = await buffer_ranked(body, cfg, client)
+            else:
+                payload = await buffer_synthesis(body, cfg, client)
+            _record_request(route_label, "success", started)
+            return _attach_release(JSONResponse(content=payload), limiter, acquired)
         except OpenFusionError as exc:
-            _record_request(route, "error", started)
+            limiter.release(acquired)
+            _record_request(route_label, "error", started)
             return _error_response(exc)
         except json.JSONDecodeError as exc:
-            _record_request(route, "error", started)
+            limiter.release(acquired)
+            _record_request(route_label, "error", started)
             return _error_response(InvalidRequestError(f"Invalid JSON: {exc}"))
         except Exception as exc:  # noqa: BLE001
-            _record_request(route, "error", started)
+            limiter.release(acquired)
+            _record_request(route_label, "error", started)
             return _error_response(UpstreamError(str(exc)))
 
     return app
@@ -269,7 +317,12 @@ async def _fusion_stream(
 ) -> StreamingResponse:
     cancel_event = asyncio.Event()
 
-    streamer = vote_and_stream if config.aggregator == Aggregator.VOTE else synthesize_and_stream
+    if config.aggregator == Aggregator.VOTE:
+        streamer = vote_and_stream
+    elif config.aggregator == Aggregator.RANKED:
+        streamer = ranked_and_stream
+    else:
+        streamer = synthesize_and_stream
 
     async def event_stream() -> AsyncIterator[str]:
         task = asyncio.create_task(_watch_disconnect(request, cancel_event))
