@@ -45,6 +45,15 @@ mid-conversation tool turns (which pass through, since their results return thro
 2. **Router gate** — `router.route()` runs before `gather_panel` in `server.py`. Today it is a heuristic; swap in an LLM classifier behind the same `RouteDecision` return type.
 3. **Eval harness** — `bench/` calls the same HTTP surface as production clients; no special internal APIs.
 
+## Web UI
+
+The playground is a React + Tailwind + shadcn SPA. Source lives in `web/`; `vite build` writes
+hashed assets into `openfusion/static/playground/`, which are committed and shipped in the wheel so
+`pip`/`uvx` users get the UI with no Node toolchain. The server mounts it at `/playground` (and `/`
+redirects there). It only calls the local `/v1` API — never provider APIs — so provider keys stay
+server-side. `GET /v1/config` exposes the active panel/judge and onboarding flags; `POST
+/v1/runtime/api-key` sets the upstream key in memory when `allow_ui_api_key` is on.
+
 ## Configuration and secrets
 
 - Runtime config lives in `openfusion.yaml` (gitignored). Use `openfusion.yaml.example` as the template.

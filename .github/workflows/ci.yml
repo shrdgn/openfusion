@@ -24,3 +24,29 @@ jobs:
 
       - name: Pytest
         run: pytest -v
+
+  web-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install and build UI
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check built assets are committed and in sync
+        run: |
+          if ! git diff --quiet -- openfusion/static/playground; then
+            echo "::error::Built UI is out of sync. Run 'cd web && npm run build' and commit."
+            git --no-pager diff --stat -- openfusion/static/playground
+            exit 1
+          fi
