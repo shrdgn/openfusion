@@ -16,7 +16,13 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Str
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
-from openfusion.config import Aggregator, OpenFusionConfig, PanelMember, load_config
+from openfusion.config import (
+    _PRESETS,
+    Aggregator,
+    OpenFusionConfig,
+    PanelMember,
+    load_config,
+)
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import (
     AuthenticationError,
@@ -26,6 +32,7 @@ from openfusion.errors import (
 )
 from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
+from openfusion.overrides import apply_overrides
 from openfusion.router import RouteDecision, route_async
 from openfusion.stream import (
     buffer_ranked,
@@ -39,7 +46,33 @@ from openfusion.tools import tools_are_server_executable
 from openfusion.upstream import UpstreamClient
 
 FUSION_MODEL = "openfusion"
-LANDING_PAGE_DIR = Path(__file__).resolve().parent / "static" / "landing"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+LANDING_PAGE_DIR = STATIC_DIR / "landing"
+PLAYGROUND_DIR = STATIC_DIR / "playground"
+
+
+def _preset_summary() -> dict[str, Any]:
+    return {
+        name.value: {
+            "panel": spec["panel_models"],
+            "judge": spec["judge_model"],
+        }
+        for name, spec in _PRESETS.items()
+    }
+
+
+def _active_config_payload(cfg: OpenFusionConfig) -> dict[str, Any]:
+    return {
+        "preset": cfg.preset.value if cfg.preset else None,
+        "strategy": cfg.strategy.value,
+        "aggregator": cfg.aggregator.value,
+        "panel": [member.model for member in cfg.panel],
+        "judge": cfg.judge.model if cfg.judge else None,
+        "tools": {"web_search": cfg.tools.web_search, "web_fetch": cfg.tools.web_fetch},
+        "allow_request_overrides": cfg.allow_request_overrides,
+        "presets": _preset_summary(),
+        "fusion_model": cfg.fusion_model_name,
+    }
 
 
 def _requires_pass_through_tools(body: dict[str, Any]) -> bool:
@@ -122,6 +155,11 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
         StaticFiles(directory=LANDING_PAGE_DIR),
         name="landing",
     )
+    app.mount(
+        "/playground",
+        StaticFiles(directory=PLAYGROUND_DIR, html=True),
+        name="playground",
+    )
 
     def get_config() -> OpenFusionConfig:
         return app.state.config
@@ -143,6 +181,10 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             METRICS.render_prometheus(),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
+
+    @app.get("/v1/config")
+    async def active_config(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
+        return _active_config_payload(cfg)
 
     @app.get("/v1/models")
     async def list_models(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
@@ -196,6 +238,16 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             model = body.get("model")
             if not isinstance(model, str) or not model:
                 raise InvalidRequestError("model is required")
+
+            override = body.pop("openfusion", None)
+            if override is not None:
+                if not isinstance(override, dict):
+                    raise InvalidRequestError("openfusion override must be an object")
+                if not cfg.allow_request_overrides:
+                    raise InvalidRequestError(
+                        "Per-request overrides are disabled on this server"
+                    )
+                cfg = apply_overrides(cfg, override)
 
             policy = CostPolicy(cfg.cost_controls)
             policy.validate_max_tokens(body)

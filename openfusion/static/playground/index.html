@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>openfusion playground</title>
+    <meta
+      name="description"
+      content="Run a panel of models and fuse one stronger answer — the openfusion playground."
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="brand" href="/"><span class="brand-mark">of</span> openfusion</a>
+      <span class="badge">playground</span>
+      <a class="topbar-link" href="https://github.com/shahar-dagan/openfusion">GitHub</a>
+    </header>
+
+    <main class="wrap">
+      <h1>Model Fusion</h1>
+      <p class="lede">Run a panel of models, run an analysis, and fuse into one stronger answer.</p>
+
+      <section class="composer">
+        <div class="preset-tabs" id="presetTabs" role="tablist">
+          <button class="preset-tab is-active" data-preset="quality">Quality</button>
+          <button class="preset-tab" data-preset="budget">Budget</button>
+          <button class="preset-tab" data-preset="custom">Custom</button>
+        </div>
+
+        <div class="models-row">
+          <div class="chips" id="panelChips" aria-label="Panel models"></div>
+          <button class="add-model" id="addModel" type="button">+ Add model</button>
+        </div>
+
+        <div class="models-row judge-row">
+          <span class="muted">Fuse with</span>
+          <div class="chips" id="judgeChip" aria-label="Judge model"></div>
+        </div>
+
+        <textarea
+          id="prompt"
+          class="prompt"
+          placeholder="Ask anything…"
+          rows="4"
+        ></textarea>
+
+        <div class="composer-footer">
+          <label class="toggle">
+            <input type="checkbox" id="webSearch" />
+            <span>Web search</span>
+          </label>
+          <details class="settings">
+            <summary>Settings</summary>
+            <input
+              type="password"
+              id="gatewayToken"
+              class="token"
+              placeholder="Gateway token (optional)"
+              autocomplete="off"
+            />
+          </details>
+          <div class="spacer"></div>
+          <button class="send" id="send" type="button">Fuse ↑</button>
+        </div>
+        <p class="config-note" id="configNote"></p>
+      </section>
+
+      <section class="output" id="output" hidden>
+        <div class="status" id="status"></div>
+        <div class="answer" id="answer"></div>
+        <details class="analysis" id="analysisBox" hidden>
+          <summary>Analysis — consensus, contradictions, blind spots</summary>
+          <div class="analysis-body" id="analysisBody"></div>
+        </details>
+        <div class="usage" id="usage" hidden></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

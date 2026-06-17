@@ -12,10 +12,20 @@ future hosted root together while openfusion is still an MVP.
   service deployments.
 - The page can move to a separate website repository later without changing `/v1` API behavior.
 
+## The playground is the one allowed interactive surface
+
+`GET /playground` (in `openfusion/static/playground/`) is an interactive single-page demo. It is
+permitted under these separation rules because it talks **only to the local `/v1` API of the same
+openfusion server** — never to provider APIs, and it never embeds provider keys. The server holds
+the keys; the browser at most sends an optional gateway token. Per-request model overrides are off
+unless the operator sets `allow_request_overrides: true`, and even then are bounded by gateway auth,
+cost ceilings, and rate limits. For a hosted deployment, keep overrides behind auth and rate limits.
+
 ## Separation rules
 
-- Keep the page static: HTML and global CSS only.
-- Do not add client-side demos that call provider APIs directly.
+- Keep the marketing page (`/`) static: HTML and global CSS only.
+- Do not add client-side demos that call provider APIs directly. (The `/playground` calls only the
+  local `/v1` API, never a provider — see above.)
 - Keep technical source-of-truth details in `README.md`, `DESIGN.md`, and `docs/ARCHITECTURE.md`.
 - Treat hosted-product features such as auth dashboards, billing, analytics, and abuse controls as a
   separate application boundary when they become real.

@@ -156,6 +156,7 @@ differences are scale and a per-prompt router.
 | Structured analysis surfaced | ✅ | ✅ `analysis.emit` (SSE `analysis` event) |
 | Multi-round debate | — | ✅ `strategy: debate` |
 | Concurrency cap + rate limiting | ✅ | ✅ `limits` (best-effort, single-process) |
+| Interactive web playground | ✅ | ✅ embedded at `/playground` (zero-build) |
 | Headline benchmark | full DRACO (100 tasks) | DRACO subset (10 tasks) — see [bench/FINDINGS.md](bench/FINDINGS.md) |
 
 ## Parameter precedence
@@ -243,6 +244,24 @@ logger.
 ## Stack
 
 Python 3.11+ / FastAPI / httpx / uvicorn.
+
+## Playground
+
+The server hosts an interactive playground at `GET /playground` — a zero-build, single-page UI
+(no separate frontend workspace) that talks only to the local `/v1` API, so provider keys never
+reach the browser. Run the server, open `http://localhost:8000/playground`, and you can:
+
+- pick a **Quality / Budget / Custom** panel and a "Fuse with" judge model,
+- toggle web search, send a prompt, and watch the **panel → synthesis** progress,
+- read the streamed answer plus the judge's **structured analysis** (consensus / contradictions /
+  blind spots) and the **token + cost** breakdown.
+
+The model selectors are read-only unless the server sets `allow_request_overrides: true`, which
+enables the per-request `openfusion: { preset | panel | judge | tools }` field (mirroring OpenRouter
+Fusion's `analysis_models`/`model` plugin fields). Overrides reuse the server's upstream
+credentials — clients choose model *ids*, never keys — and stay bounded by the gateway auth, cost
+ceilings, and rate limits. Read `GET /v1/config` for the active panel/judge and whether overrides
+are allowed.
 
 ## Landing page
 

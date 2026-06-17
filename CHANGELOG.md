@@ -7,6 +7,14 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Interactive playground** at `GET /playground` — a zero-build single-page UI that talks only to
+  the local `/v1` API (provider keys never reach the browser). Pick a Quality/Budget/Custom panel
+  and judge, toggle web search, and watch the streamed answer, structured analysis, and token/cost.
+- **`GET /v1/config`** — read-only active config (panel, judge, tools, presets, overrides allowed).
+- **Per-request overrides** — optional `openfusion: { preset | panel | judge | tools }` request
+  field (gated by `allow_request_overrides`, default off), mirroring OpenRouter Fusion's
+  `analysis_models`/`model` plugin fields. Overrides reuse server credentials and stay bounded by
+  auth, cost ceilings, and rate limits.
 - **Production limits** (`limits`) — optional concurrency cap (`max_in_flight`, over-limit → 503)
   and per-gateway-key rate limiting (`rate_limit_per_minute`, over-limit → 429). Default unlimited.
 - **Model-classifier routing** (`router.mode: model`) — the Auto Router can call a small classifier

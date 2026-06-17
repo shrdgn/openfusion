@@ -243,6 +243,10 @@ class OpenFusionConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     pass_through: PassThroughConfig | None = None
     fusion_model_name: str = "openfusion"
+    # Allow clients to override panel/judge/preset/tools per request via the
+    # `openfusion` request field (used by the playground). Off by default: when
+    # on it's still bounded by gateway auth, cost ceilings, and rate limits.
+    allow_request_overrides: bool = False
 
     def resolved_pass_through(self) -> PassThroughConfig:
         if self.pass_through is not None:
