@@ -12,6 +12,8 @@ back a single synthesized answer that aims to beat any one of them.
 It's the open version of the mixture-of-agents idea behind OpenRouter's Fusion: better answers
 from models you already pay for, as a tunable, forkable recipe instead of a black box.
 
+![openfusion playground — panel fan-out to judge synthesis](https://github.com/shahar-dagan/openfusion/releases/download/assets/openfusion.gif)
+
 **[Quick start](#quick-start)** · [How it works](#how-it-works) · [Playground](#playground) ·
 [Routing & strategies](#routing--strategies) · [vs. OpenRouter Fusion](#openfusion-vs-openrouter-fusion) ·
 [Benchmarks](#benchmarks) · [Contributing](CONTRIBUTING.md)
