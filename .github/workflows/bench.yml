@@ -104,7 +104,7 @@ jobs:
       - name: Start openfusion
         run: |
           OPENFUSION_CONFIG="$CONFIG" \
-            openfusion --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+            openfusion web --host 127.0.0.1 --port 8000 > server.log 2>&1 &
           echo $! > server.pid
           for i in $(seq 1 30); do
             if curl -sf http://127.0.0.1:8000/healthz > /dev/null; then

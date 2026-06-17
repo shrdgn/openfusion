@@ -102,6 +102,6 @@ server-side. `GET /v1/config` exposes the active panel/judge and onboarding flag
 
 ## Distribution
 
-- `openfusion` console script → `cli.py` → uvicorn
+- `openfusion` console script → `cli.py`: bare command is the interactive chat REPL; `openfusion web` runs the server via uvicorn; `ask`/`setup` are one-shot/wizard
 - Docker image mounts config via volume or env-substituted YAML
 - CI runs `ruff check` and `pytest` without live API keys

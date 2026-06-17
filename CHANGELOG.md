@@ -6,7 +6,15 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed (breaking)
+- **`openfusion` now opens an interactive chat** (REPL) with the model panel instead of starting the
+  server. Run the server + playground with **`openfusion web`** (alias `serve`). The Docker image and
+  docs use `openfusion web`; non-interactive `openfusion` (pipes/CI) reads a one-shot prompt from
+  stdin or prints help.
+
 ### Added
+- **Interactive REPL** — streamed answers, live panel progress, conversation history, and slash
+  commands (`/preset`, `/tokens`, `/models`, `/clear`, `/help`).
 - **`openfusion ask "…"`** — run a one-shot fusion from the terminal (streams the answer to stdout,
   progress to stderr); `--max-tokens` caps each call.
 - **Live progress breakdown** — the playground (and the SSE `progress` events) now report each panel

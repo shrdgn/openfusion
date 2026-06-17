@@ -22,7 +22,7 @@ from openfusion.config import (
     Preset,
     load_config,
 )
-from openfusion.overrides import apply_overrides, is_missing_api_key
+from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
 
 
 def _summarize_config(config: OpenFusionConfig, host: str, port: int) -> str:
@@ -180,20 +180,154 @@ def _ask_cli(argv: list[str]) -> None:
     run_ask(args.prompt, args.config, args.max_tokens)
 
 
-def main() -> None:
-    if len(sys.argv) > 1 and sys.argv[1] == "setup":
-        run_setup()
-        return
-    if len(sys.argv) > 1 and sys.argv[1] == "ask":
-        _ask_cli(sys.argv[2:])
-        return
+async def _chat_turn(messages: list[dict[str, str]], config: OpenFusionConfig) -> str:
+    """Run one fusion turn over the conversation, streaming to stdout; return the text."""
+    from openfusion.panel import gather_panel
+    from openfusion.ranked import pick_best
+    from openfusion.synthesize import synthesize
+    from openfusion.upstream import UpstreamClient
+    from openfusion.vote import majority_vote
 
-    parser = argparse.ArgumentParser(description="Run the openfusion proxy server")
+    client = UpstreamClient()
+    body = {"messages": messages}
+    parts: list[str] = []
+    try:
+        sys.stderr.write("\033[2m· querying panel…\033[0m\n")
+        sys.stderr.flush()
+        panel = await gather_panel(body, config, client)
+        if config.aggregator == Aggregator.VOTE:
+            content, _ = majority_vote(panel)
+            print(content)
+            parts.append(content)
+        elif config.aggregator == Aggregator.RANKED:
+            content, _ = await pick_best(
+                body, panel, config, client, timeout=config.timeouts.judge_seconds
+            )
+            print(content)
+            parts.append(content)
+        else:
+            async for delta, _usage, _reason in synthesize(
+                body, panel, config, client, timeout=config.timeouts.judge_seconds
+            ):
+                if delta:
+                    sys.stdout.write(delta)
+                    sys.stdout.flush()
+                    parts.append(delta)
+            print()
+    finally:
+        await client.aclose()
+    return "".join(parts)
+
+
+def _models_line(config: OpenFusionConfig) -> str:
+    panel = ", ".join(m.model for m in config.panel) or "—"
+    judge = config.judge.model if config.judge else "—"
+    agg = config.aggregator.value
+    return f"\033[2m· panel: {panel}\n· judge: {judge}  · aggregator: {agg}\033[0m"
+
+
+_CHAT_HELP = """\
+Commands:
+  /help            show this help
+  /models          show the active panel and judge
+  /preset NAME     switch recipe (quality | budget)
+  /tokens N        cap tokens per call
+  /clear           reset the conversation
+  /quit            exit  (or Ctrl-D)"""
+
+
+def run_chat(config_path: str | None, max_tokens: int | None) -> None:
+    """Interactive REPL: chat with the model panel right in the terminal."""
+    with contextlib.suppress(ImportError):
+        import readline  # noqa: F401 - enables arrow-key history for input()
+
+    try:
+        config = load_config(config_path)
+    except (FileNotFoundError, ValueError, ValidationError) as exc:
+        print(f"openfusion: could not load configuration.\n{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if max_tokens:
+        config = apply_overrides(config, {"max_tokens": max_tokens})
+
+    if is_missing_api_key(config) and sys.stdin.isatty():
+        key = getpass.getpass("OpenRouter API key (or run `openfusion setup`): ").strip()
+        if key:
+            config = fill_missing_keys(config, key)
+    if is_missing_api_key(config):
+        print(
+            "openfusion: no upstream API key. Set OPENROUTER_API_KEY or run `openfusion setup`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
+    base_config = config
+    print("\033[1mopenfusion\033[0m — chat with a model panel. /help for commands, Ctrl-D to exit.")
+    print(_models_line(config))
+    messages: list[dict[str, str]] = []
+
+    while True:
+        try:
+            line = input("\n\033[1myou ›\033[0m ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nbye")
+            return
+        if not line:
+            continue
+        if line.startswith("/"):
+            tokens = line[1:].split(maxsplit=1)
+            cmd = tokens[0].lower()
+            arg = tokens[1].strip() if len(tokens) > 1 else ""
+            if cmd in ("q", "quit", "exit"):
+                print("bye")
+                return
+            elif cmd in ("h", "help", "?"):
+                print(_CHAT_HELP)
+            elif cmd == "models":
+                print(_models_line(config))
+            elif cmd == "clear":
+                messages.clear()
+                print("\033[2m· conversation cleared\033[0m")
+            elif cmd == "preset":
+                if arg in ("quality", "budget"):
+                    config = apply_overrides(base_config, {"preset": arg})
+                    print(f"\033[2m· switched to {arg}\033[0m")
+                    print(_models_line(config))
+                else:
+                    print("usage: /preset quality|budget")
+            elif cmd == "tokens":
+                if arg.isdigit() and int(arg) > 0:
+                    config = apply_overrides(config, {"max_tokens": int(arg)})
+                    print(f"\033[2m· max tokens per call = {arg}\033[0m")
+                else:
+                    print("usage: /tokens <n>")
+            else:
+                print(f"unknown command: /{cmd} (try /help)")
+            continue
+
+        messages.append({"role": "user", "content": line})
+        print()
+        try:
+            answer = asyncio.run(_chat_turn(messages, config))
+        except KeyboardInterrupt:
+            print("\n\033[2m· cancelled\033[0m")
+            messages.pop()
+            continue
+        except Exception as exc:  # noqa: BLE001 - keep the REPL alive on errors
+            print(f"\n\033[31m[error]\033[0m {exc}", file=sys.stderr)
+            messages.pop()
+            continue
+        messages.append({"role": "assistant", "content": answer})
+
+
+def run_server(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(
+        prog="openfusion web", description="Start the openfusion server + web playground"
+    )
     parser.add_argument("--host", default=os.environ.get("OPENFUSION_HOST", "0.0.0.0"))
     parser.add_argument("--port", type=int, default=int(os.environ.get("OPENFUSION_PORT", "8000")))
     parser.add_argument("--config", default=os.environ.get("OPENFUSION_CONFIG"))
     parser.add_argument("--reload", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Ensure the uvicorn factory (which re-loads config in the worker) honors
     # an explicit --config, not just the OPENFUSION_CONFIG env var.
@@ -217,6 +351,54 @@ def main() -> None:
         reload=args.reload,
         log_level=os.environ.get("OPENFUSION_LOG_LEVEL", "info"),
     )
+
+
+_HELP = """\
+openfusion — open mixture-of-agents
+
+Usage:
+  openfusion                  Chat with the model panel (interactive)
+  openfusion ask "PROMPT"     Run one fusion and print the answer
+  openfusion web              Start the server + web playground
+  openfusion setup            Guided first-run setup
+  echo "PROMPT" | openfusion  Pipe a one-shot prompt
+
+Run `openfusion web --help` for server options."""
+
+
+def main() -> None:
+    argv = sys.argv[1:]
+    if argv and argv[0] in ("-h", "--help"):
+        print(_HELP)
+        return
+
+    cmd = argv[0] if argv and not argv[0].startswith("-") else None
+    if cmd in ("web", "serve"):
+        run_server(argv[1:])
+        return
+    if cmd == "ask":
+        _ask_cli(argv[1:])
+        return
+    if cmd == "setup":
+        run_setup()
+        return
+    if cmd == "chat":
+        run_chat(os.environ.get("OPENFUSION_CONFIG"), None)
+        return
+    if cmd is not None:
+        print(f"openfusion: unknown command '{cmd}'\n", file=sys.stderr)
+        print(_HELP, file=sys.stderr)
+        raise SystemExit(2)
+
+    # Bare `openfusion`: interactive chat in a TTY; pipe support otherwise.
+    if not sys.stdin.isatty():
+        piped = sys.stdin.read().strip()
+        if piped:
+            run_ask(piped, os.environ.get("OPENFUSION_CONFIG"), None)
+        else:
+            print(_HELP)
+        return
+    run_chat(os.environ.get("OPENFUSION_CONFIG"), None)
 
 
 if __name__ == "__main__":

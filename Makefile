@@ -20,4 +20,4 @@ ui:
 
 # Start the server (zero-config; set OPENROUTER_API_KEY or use the playground).
 run:
-	openfusion --host 0.0.0.0 --port 8000
+	openfusion web --host 0.0.0.0 --port 8000
