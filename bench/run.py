@@ -212,7 +212,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Benchmark openfusion vs solo model")
-    parser.add_argument("--config", default="openfusion.yaml.example")
+    parser.add_argument("--config", default="examples/default.yaml.example")
     parser.add_argument("--tasks", default="bench/tasks/sample.jsonl")
     parser.add_argument(
         "--dataset",

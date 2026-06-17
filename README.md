@@ -24,7 +24,7 @@ New here? You only need the first two to run it; the rest is for tuning and cont
 |------|-----------|
 | `openfusion/` | The proxy (FastAPI). Start with `server.py`; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map. |
 | `web/` | The playground UI source (React + shadcn). Built assets ship in `openfusion/static/`. |
-| `openfusion.*.yaml.example` | Copy-paste config recipes (preset, dev, panel, bench…). You don't need a config to start. |
+| `examples/` | Copy-paste config recipes (preset, dev, panel, bench…). You don't need a config to start. |
 | `bench/` | Reproducible head-to-head harness; `bench/FINDINGS.md` is where fusion does and doesn't pay off. |
 | `DESIGN.md` · `docs/` | Design rationale, architecture, and security notes. |
 
@@ -56,6 +56,9 @@ lands where fusion actually wins.
 
 Developing on a clone? `pip install -e .` then `openfusion`.
 
+Prefer a guided setup? `openfusion setup` walks you through entering your key and picking a recipe,
+then writes an `openfusion.yaml` for you.
+
 Prefer the terminal? Set the key in the environment instead and skip the UI prompt:
 
 ```bash
@@ -63,8 +66,8 @@ export OPENROUTER_API_KEY=your-key-here
 openfusion --host 0.0.0.0 --port 8000
 ```
 
-For a fixed recipe, write an `openfusion.yaml` (start from `openfusion.preset.yaml.example` —
-`preset: quality | budget`, or `openfusion.yaml.example` for a fully spelled-out panel/judge). A
+For a fixed recipe, write an `openfusion.yaml` (start from `examples/preset.yaml.example` —
+`preset: quality | budget`, or `examples/default.yaml.example` for a fully spelled-out panel/judge). A
 **preset** expands to a diverse OpenRouter panel + judge with web tools on, mirroring OpenRouter
 Fusion's Quality/Budget switch:
 
@@ -226,7 +229,7 @@ Run the opt-in live OpenRouter smoke test only when you intend to spend a small 
 
 ```bash
 export OPENROUTER_API_KEY=your-key
-python scripts/openrouter_smoke.py --config openfusion.dev.yaml.example --yes-spend-credits
+python scripts/openrouter_smoke.py --config examples/dev.yaml.example --yes-spend-credits
 ```
 
 ## Benchmarks
@@ -235,7 +238,7 @@ Run the head-to-head benchmark (self-fusion vs solo model):
 
 ```bash
 pip install -e ".[dev]"
-python bench/run.py --config openfusion.yaml.example --tasks bench/tasks/sample.jsonl
+python bench/run.py --config examples/default.yaml.example --tasks bench/tasks/sample.jsonl
 ```
 
 Use `--tasks bench/tasks/smoke.jsonl --max-tokens 32` before larger benchmark runs.

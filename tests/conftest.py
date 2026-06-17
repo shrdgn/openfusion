@@ -21,7 +21,7 @@ from openfusion.config import (
 )
 from openfusion.server import create_app
 
-EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "openfusion.yaml.example"
+EXAMPLE_CONFIG = Path(__file__).resolve().parents[1] / "examples/default.yaml.example"
 
 
 @pytest.fixture

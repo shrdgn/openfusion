@@ -14,8 +14,56 @@ from openfusion.config import (
     PanelMember,
     Strategy,
     TimeoutsConfig,
+    quickstart_config,
 )
 from openfusion.server import create_app
+
+
+@pytest.mark.asyncio
+async def test_custom_panel_from_ui_actually_runs_those_models(mock_router) -> None:
+    """End-to-end: the UI's Custom/'Add model' chips + runtime key really run.
+
+    Simulates the exact request the playground sends after a user adds custom
+    models and pastes a key: zero-config server -> POST /v1/runtime/api-key ->
+    chat with an `openfusion.panel` override -> those models are the ones called.
+    """
+    cfg = quickstart_config()
+    for member in cfg.panel:
+        member.api_key = ""  # nothing configured; key comes from the UI
+    if cfg.judge:
+        cfg.judge.api_key = ""
+    if cfg.pass_through:
+        cfg.pass_through.api_key = ""
+    cfg.aggregator = Aggregator.VOTE  # avoid the judge stream for a clean assertion
+    app = create_app(cfg)
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        seen.append(body["model"])
+        assert request.headers["authorization"] == "Bearer sk-from-ui"
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+        )
+
+    mock_router.post("https://openrouter.ai/api/v1/chat/completions").mock(side_effect=handler)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        await http_client.post("/v1/runtime/api-key", json={"api_key": "sk-from-ui"})
+        response = await http_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openfusion",
+                "messages": [{"role": "user", "content": "q"}],
+                "openfusion": {"panel": ["acme/custom-a", "acme/custom-b"]},
+            },
+        )
+    await app.state.upstream_client.aclose()
+
+    assert response.status_code == 200
+    assert set(seen) == {"acme/custom-a", "acme/custom-b"}
 
 
 async def test_v1_config_reports_active_config(client: httpx.AsyncClient) -> None:

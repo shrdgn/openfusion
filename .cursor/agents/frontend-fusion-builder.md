@@ -29,7 +29,7 @@ This repository is a Python FastAPI service. Treat these endpoints as the integr
 
 Respect configuration behavior:
 
-- The backend loads `OPENFUSION_CONFIG`, defaults to `openfusion.yaml`, and falls back to `openfusion.yaml.example`.
+- The backend loads `OPENFUSION_CONFIG`, defaults to `openfusion.yaml`, and falls back to `examples/default.yaml.example`.
 - Real fusion requests require an OpenAI-compatible upstream for panel and judge calls.
 - Local end-to-end tests should use a local mock OpenAI-compatible upstream when real secrets are unavailable.
 - Never commit `openfusion.yaml`, `.env`, API keys, tokens, or captured prompt data that may be sensitive.

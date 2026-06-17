@@ -385,7 +385,7 @@ def load_config(path: str | Path | None = None) -> OpenFusionConfig:
         raise FileNotFoundError(
             f"Config file not found: {config_path}. "
             "Copy an example to get started, e.g. "
-            "`cp openfusion.preset.yaml.example openfusion.yaml`, "
+            "`cp examples/preset.yaml.example openfusion.yaml`, "
             "then set OPENROUTER_API_KEY."
         )
 

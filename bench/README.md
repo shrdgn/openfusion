@@ -11,7 +11,7 @@ Head-to-head comparison of **self-fusion** (panel + judge) vs a **solo** call to
 ```bash
 export OPENROUTER_API_KEY=your-key
 python bench/run.py \
-  --config openfusion.dev.yaml.example \
+  --config examples/dev.yaml.example \
   --tasks bench/tasks/smoke.jsonl \
   --max-tokens 32 \
   --output bench/results/latest.json
@@ -21,7 +21,7 @@ python bench/run.py \
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--config` | `openfusion.yaml.example` | openfusion config with panel/judge |
+| `--config` | `examples/default.yaml.example` | openfusion config with panel/judge |
 | `--tasks` | `bench/tasks/sample.jsonl` | JSONL task file |
 | `--dataset` | none | Public dataset loader (`gsm8k`); overrides `--tasks` |
 | `--limit` | `40` | Max tasks when using `--dataset` |
@@ -48,7 +48,7 @@ with headroom, use the GSM8K loader with the higher-ceiling bench config:
 
 ```bash
 python bench/run.py \
-  --config openfusion.bench.yaml.example \
+  --config examples/bench.yaml.example \
   --dataset gsm8k --limit 40 \
   --max-tokens 512 \
   --output bench/results/latest.json
@@ -70,7 +70,7 @@ fusion and a full rubric-graded harness.
 
 ```bash
 python bench/research_eval.py \
-  --config openfusion.bench.yaml.example \
+  --config examples/bench.yaml.example \
   --tasks bench/tasks/research.jsonl \
   --max-tokens 512 \
   --output bench/results/latest.json
@@ -96,7 +96,7 @@ Supported `match` modes:
 
 ## Reproducing README numbers
 
-1. Start openfusion: `OPENFUSION_CONFIG=openfusion.dev.yaml.example openfusion --port 8000`
+1. Start openfusion: `OPENFUSION_CONFIG=examples/dev.yaml.example openfusion --port 8000`
 2. Run the smoke task set with `--max-tokens 32`
 3. Move to `bench/tasks/sample.jsonl` only after the smoke run is stable
 4. Compare `solo.accuracy` vs `fusion.accuracy` in the output JSON
