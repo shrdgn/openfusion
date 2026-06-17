@@ -14,4 +14,4 @@ RUN pip install --no-cache-dir .
 # OPENROUTER_API_KEY, mount an openfusion.yaml at /app, or set the key in the UI.
 EXPOSE 8000
 
-CMD ["openfusion", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["openfusion", "web", "--host", "0.0.0.0", "--port", "8000"]

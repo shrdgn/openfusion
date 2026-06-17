@@ -38,49 +38,40 @@ and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for architecture and security n
 
 ## Quick start
 
-Pick one (no clone, no config, no env vars needed):
+`openfusion` has two front ends — an interactive terminal chat and a web playground. No clone, no
+config, no env vars needed to start.
+
+### Chat in your terminal
 
 ```bash
-# Run it (ephemeral, needs uv — https://docs.astral.sh/uv/)
-uvx --from git+https://github.com/shahar-dagan/openfusion openfusion
-
-# …or install it
-pip install git+https://github.com/shahar-dagan/openfusion && openfusion
-
-# …or Docker (after a release tag publishes the image)
-docker run -p 8000:8000 ghcr.io/shahar-dagan/openfusion
+uvx --from git+https://github.com/shahar-dagan/openfusion openfusion   # ephemeral, needs uv
+# …or: pip install git+https://github.com/shahar-dagan/openfusion && openfusion
 ```
 
-Then open **http://localhost:8000** — it redirects to the playground, where you paste your
-OpenRouter API key (held only in the server's memory) and start fusing. With nothing configured,
-openfusion boots the **Budget** preset (a diverse panel + judge with web search) so the first run
+Bare `openfusion` drops you into a chat with the model panel — streamed answers, live panel
+progress, and slash commands (`/preset`, `/tokens`, `/models`, `/clear`). On first run it asks for
+your OpenRouter key; run `openfusion setup` once to save it. Pipe for one-shots: `echo "…" | openfusion`.
+
+### Web playground
+
+```bash
+openfusion web                                  # then open http://localhost:8000
+# …or: docker run -p 8000:8000 ghcr.io/shahar-dagan/openfusion
+```
+
+Opens the playground, where you paste your key (kept only in server memory) and fuse. With nothing
+configured it boots the **Budget** preset (a diverse panel + judge with web search) so the first run
 lands where fusion actually wins.
 
-Cloned the repo and want the `openfusion` command available everywhere (no venv to activate)?
-Install it as a tool:
+### Install the command everywhere (no venv to activate)
 
 ```bash
-uv tool install .     # or: pipx install . && pipx ensurepath
+uv tool install .     # from a clone — or: pipx install . && pipx ensurepath
 ```
 
-For active development on the code, use an editable install inside a venv — but then the command
-only works while that venv is activated:
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .
-openfusion
-```
-
-Prefer a guided setup? `openfusion setup` walks you through entering your key and picking a recipe,
-then writes an `openfusion.yaml` for you.
-
-Prefer the terminal? Set the key in the environment instead and skip the UI prompt:
-
-```bash
-export OPENROUTER_API_KEY=your-key-here
-openfusion --host 0.0.0.0 --port 8000
-```
+For active development, `pip install -e .` inside an activated venv (the command then works only
+while that venv is active). A bare `pip install -e .` does not put `openfusion` on your global PATH —
+see [Troubleshooting](#troubleshooting).
 
 For a fixed recipe, write an `openfusion.yaml` (start from `examples/preset.yaml.example` —
 `preset: quality | budget`, or `examples/default.yaml.example` for a fully spelled-out panel/judge). A
@@ -92,7 +83,7 @@ Fusion's Quality/Budget switch:
 | `quality` | Claude Sonnet 4 · Gemini 3 Pro · DeepSeek V4 Pro | Claude Sonnet 4 | web search + fetch |
 | `budget` | GPT-4o-mini · DeepSeek V4 Pro · Kimi K2.6 | DeepSeek V4 Pro | web search + fetch |
 
-Use with the OpenAI Python SDK:
+Use as a drop-in API from the OpenAI SDK (with `openfusion web` running):
 
 ```python
 from openai import OpenAI

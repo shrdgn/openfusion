@@ -7,7 +7,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from openfusion.cli import _run_ask, _summarize_config, build_setup_yaml
+from openfusion.cli import _chat_turn, _run_ask, _summarize_config, build_setup_yaml
 from openfusion.config import (
     Aggregator,
     JudgeConfig,
@@ -37,6 +37,27 @@ async def test_run_ask_prints_fused_answer(mock_router, capsys: pytest.CaptureFi
     await _run_ask("what is 2+2?", config)
 
     assert "the answer" in capsys.readouterr().out
+
+
+async def test_chat_turn_streams_and_returns_answer(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "fused reply"}}]}
+        )
+    )
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        aggregator=Aggregator.VOTE,
+        panel=[
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1"),
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m2"),
+        ],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
+    )
+
+    answer = await _chat_turn([{"role": "user", "content": "hi"}], config)
+
+    assert "fused reply" in answer
 
 
 def test_setup_yaml_loads_into_valid_config(tmp_path: Path) -> None:
