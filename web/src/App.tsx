@@ -76,6 +76,16 @@ export default function App() {
 
   const allowOverrides = config?.allow_request_overrides ?? false;
 
+  const modelSuggestions = (() => {
+    const set = new Set<string>();
+    for (const p of Object.values(config?.presets ?? {})) {
+      (p.panel || []).forEach((m) => set.add(m));
+      if (p.judge) set.add(p.judge);
+    }
+    [...panel, judge].forEach((m) => m && set.add(m));
+    return [...set].sort();
+  })();
+
   useEffect(() => {
     getConfig()
       .then((cfg) => {
@@ -269,12 +279,19 @@ export default function App() {
               </TabsList>
             </Tabs>
 
+            <datalist id="model-list">
+              {modelSuggestions.map((m) => (
+                <option key={m} value={m} />
+              ))}
+            </datalist>
+
             <div className="flex flex-wrap items-center gap-2">
               {panel.map((model, i) => (
                 <ModelChip
                   key={i}
                   value={model}
                   editable={allowOverrides}
+                  listId="model-list"
                   onChange={(v) => setPanel((p) => p.map((m, j) => (j === i ? v : m)))}
                   onRemove={() => {
                     setPanel((p) => p.filter((_, j) => j !== i));
@@ -298,7 +315,12 @@ export default function App() {
 
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-muted-foreground">Fuse with</span>
-              <ModelChip value={judge} editable={allowOverrides} onChange={setJudge} />
+              <ModelChip
+                value={judge}
+                editable={allowOverrides}
+                listId="model-list"
+                onChange={setJudge}
+              />
             </div>
 
             <Textarea
@@ -564,19 +586,22 @@ function ModelChip({
   editable,
   onChange,
   onRemove,
+  listId,
 }: {
   value: string;
   editable: boolean;
   onChange: (v: string) => void;
   onRemove?: () => void;
+  listId?: string;
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-lg border bg-card px-2.5 py-1.5 text-sm">
       {editable ? (
         <input
-          className="min-w-[120px] bg-transparent outline-none"
+          className="min-w-[140px] bg-transparent outline-none"
           value={value}
           placeholder="provider/model"
+          list={listId}
           onChange={(e) => onChange(e.target.value)}
         />
       ) : (
