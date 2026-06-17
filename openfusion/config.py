@@ -365,7 +365,7 @@ def quickstart_config() -> OpenFusionConfig:
         ),
         tools=ToolsConfig(web_search=True, web_fetch=True),
         cost_controls=CostControlsConfig(
-            pass_through_max_tokens=1024, panel_max_tokens=1024, judge_max_tokens=2048
+            pass_through_max_tokens=1024, panel_max_tokens=1024, judge_max_tokens=1024
         ),
         allow_ui_api_key=True,
         allow_request_overrides=True,

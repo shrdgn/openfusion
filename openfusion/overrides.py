@@ -21,6 +21,7 @@ from openfusion.config import (
 )
 
 MAX_OVERRIDE_PANEL = 6
+MAX_OVERRIDE_TOKENS = 8192
 
 
 def _default_credentials(config: OpenFusionConfig) -> tuple[str, str]:
@@ -83,6 +84,17 @@ def apply_overrides(config: OpenFusionConfig, override: dict[str, Any]) -> OpenF
             new.tools.web_search = bool(tools["web_search"])
         if "web_fetch" in tools:
             new.tools.web_fetch = bool(tools["web_fetch"])
+
+    max_tokens = override.get("max_tokens")
+    if isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens > 0:
+        capped = min(max_tokens, MAX_OVERRIDE_TOKENS)
+        new.cost_controls = new.cost_controls.model_copy(
+            update={
+                "panel_max_tokens": capped,
+                "judge_max_tokens": capped,
+                "pass_through_max_tokens": capped,
+            }
+        )
 
     return new
 

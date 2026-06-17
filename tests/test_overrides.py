@@ -50,6 +50,18 @@ def test_panel_is_capped() -> None:
     assert len(cfg.panel) == MAX_OVERRIDE_PANEL
 
 
+def test_max_tokens_override_caps_cost_controls() -> None:
+    cfg = apply_overrides(_base(), {"max_tokens": 256})
+    assert cfg.cost_controls.panel_max_tokens == 256
+    assert cfg.cost_controls.judge_max_tokens == 256
+    assert cfg.cost_controls.pass_through_max_tokens == 256
+
+
+def test_max_tokens_override_is_clamped() -> None:
+    cfg = apply_overrides(_base(), {"max_tokens": 999_999})
+    assert cfg.cost_controls.judge_max_tokens == 8192
+
+
 def test_base_config_not_mutated() -> None:
     base = _base()
     apply_overrides(base, {"panel": ["a", "b"], "judge": "x"})

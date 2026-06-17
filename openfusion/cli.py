@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import contextlib
 import getpass
 import os
@@ -16,11 +17,12 @@ from pydantic import ValidationError
 from openfusion.config import (
     _PRESETS,
     OPENROUTER_BASE_URL,
+    Aggregator,
     OpenFusionConfig,
     Preset,
     load_config,
 )
-from openfusion.overrides import is_missing_api_key
+from openfusion.overrides import apply_overrides, is_missing_api_key
 
 
 def _summarize_config(config: OpenFusionConfig, host: str, port: int) -> str:
@@ -112,9 +114,78 @@ def run_setup() -> None:
     )
 
 
+async def _run_ask(prompt: str, config: OpenFusionConfig) -> None:
+    from openfusion.panel import gather_panel
+    from openfusion.ranked import pick_best
+    from openfusion.synthesize import synthesize
+    from openfusion.upstream import UpstreamClient
+    from openfusion.vote import majority_vote
+
+    client = UpstreamClient()
+    body = {"messages": [{"role": "user", "content": prompt}]}
+    try:
+        print("· querying panel…", file=sys.stderr)
+        panel = await gather_panel(body, config, client)
+        print(
+            f"· {len(panel.responses)} answered"
+            + (f", {len(panel.failures)} failed" if panel.failures else ""),
+            file=sys.stderr,
+        )
+        if config.aggregator == Aggregator.VOTE:
+            content, _ = majority_vote(panel)
+            print(content)
+        elif config.aggregator == Aggregator.RANKED:
+            content, _ = await pick_best(
+                body, panel, config, client, timeout=config.timeouts.judge_seconds
+            )
+            print(content)
+        else:
+            print("· synthesizing…\n", file=sys.stderr)
+            async for delta, _usage, _reason in synthesize(
+                body, panel, config, client, timeout=config.timeouts.judge_seconds
+            ):
+                if delta:
+                    sys.stdout.write(delta)
+                    sys.stdout.flush()
+            print()
+    finally:
+        await client.aclose()
+
+
+def run_ask(prompt: str, config_path: str | None, max_tokens: int | None) -> None:
+    try:
+        config = load_config(config_path)
+    except (FileNotFoundError, ValueError, ValidationError) as exc:
+        print(f"openfusion: could not load configuration.\n{exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
+    if max_tokens:
+        config = apply_overrides(config, {"max_tokens": max_tokens})
+    if is_missing_api_key(config):
+        print(
+            "openfusion: no upstream API key. Set OPENROUTER_API_KEY or run `openfusion setup`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    asyncio.run(_run_ask(prompt, config))
+
+
+def _ask_cli(argv: list[str]) -> None:
+    parser = argparse.ArgumentParser(
+        prog="openfusion ask", description="Run one fusion prompt and print the answer"
+    )
+    parser.add_argument("prompt", help="The prompt to fuse")
+    parser.add_argument("--config", default=os.environ.get("OPENFUSION_CONFIG"))
+    parser.add_argument("--max-tokens", type=int, default=None, help="Cap tokens per call")
+    args = parser.parse_args(argv)
+    run_ask(args.prompt, args.config, args.max_tokens)
+
+
 def main() -> None:
     if len(sys.argv) > 1 and sys.argv[1] == "setup":
         run_setup()
+        return
+    if len(sys.argv) > 1 and sys.argv[1] == "ask":
+        _ask_cli(sys.argv[2:])
         return
 
     parser = argparse.ArgumentParser(description="Run the openfusion proxy server")

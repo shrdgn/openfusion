@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import random
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -263,8 +264,13 @@ async def gather_panel(
     client: UpstreamClient,
     *,
     cancel_event: asyncio.Event | None = None,
+    on_member: Callable[[str, str, bool], Awaitable[None]] | None = None,
 ) -> PanelResult:
-    """Fan out to all panel members concurrently with graceful degradation."""
+    """Fan out to all panel members concurrently with graceful degradation.
+
+    ``on_member(label, model, succeeded)`` is awaited as each member finishes, so
+    callers can stream live progress.
+    """
     members = expand_panel_members(config)
     if not members:
         raise UpstreamError("No panel members configured")
@@ -277,8 +283,9 @@ async def gather_panel(
         overrides: dict[str, Any],
     ) -> MemberResponse | MemberFailure:
         label = member.label or member.model
+        outcome: MemberResponse | MemberFailure
         try:
-            return await _call_member(
+            outcome = await _call_member(
                 client,
                 member,
                 request_body,
@@ -290,15 +297,18 @@ async def gather_panel(
         except asyncio.CancelledError:
             raise
         except TimeoutError as exc:
-            return MemberFailure(label=label, reason=str(exc))
+            outcome = MemberFailure(label=label, reason=str(exc))
         except UpstreamError as exc:
-            return MemberFailure(
+            outcome = MemberFailure(
                 label=label,
                 reason=str(exc),
                 status_code=exc.upstream_status_code,
             )
         except Exception as exc:  # noqa: BLE001 - degrade per member
-            return MemberFailure(label=label, reason=str(exc))
+            outcome = MemberFailure(label=label, reason=str(exc))
+        if on_member is not None:
+            await on_member(label, member.model, isinstance(outcome, MemberResponse))
+        return outcome
 
     tasks = [
         asyncio.create_task(run_member(member, overrides))

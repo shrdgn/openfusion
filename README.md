@@ -91,6 +91,20 @@ for chunk in stream:
     print(chunk.choices[0].delta.content or "", end="")
 ```
 
+Or straight from the terminal, no server needed:
+
+```bash
+openfusion ask "Compare Postgres and SQLite for a small SaaS." --max-tokens 800
+```
+
+`ask` runs one fusion against your configured panel and streams the synthesized answer to stdout
+(panel progress goes to stderr). `--max-tokens` caps every call — lower is faster and cheaper.
+
+> **Speed & length.** Fusion runs N panel calls plus a judge, so it's slower than one model — the
+> panel runs in parallel and the judge streams as soon as the panel finishes. The judge is prompted
+> to stay concise, and you cap length with `--max-tokens` (CLI), `max_tokens` (API), the response-
+> length control in the playground Settings, or `cost_controls` in config.
+
 ## Routing & strategies
 
 Three knobs control *whether* and *how* a prompt is fused. All are optional and off/default.

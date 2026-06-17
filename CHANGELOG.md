@@ -7,6 +7,18 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`openfusion ask "…"`** — run a one-shot fusion from the terminal (streams the answer to stdout,
+  progress to stderr); `--max-tokens` caps each call.
+- **Live progress breakdown** — the playground (and the SSE `progress` events) now report each panel
+  member as it finishes and the synthesis step, so you can see what you're waiting on.
+- **Response-length control** — the playground Settings expose a max-tokens cap; per-request
+  `openfusion.max_tokens` caps every panel/judge/pass-through call (clamped to 8192).
+
+### Changed
+- The judge prompt now asks for concise, focused answers, and the zero-config quick start caps
+  responses at ~1024 tokens, so out-of-box answers aren't never-ending.
+
+### Added (continued)
 - **Formatted answers** — the playground renders the response as Markdown (headings, lists, tables,
   code blocks via GitHub-flavored Markdown) with a copy button, instead of plain pre-wrapped text.
 - **`openfusion setup`** — an interactive first-run wizard that prompts for your OpenRouter key and

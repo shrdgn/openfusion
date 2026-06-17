@@ -42,8 +42,20 @@ export async function setApiKey(key: string): Promise<{ api_key_set: boolean }> 
   return body;
 }
 
+export interface ProgressEvent {
+  stage: string;
+  message?: string;
+  models?: string[];
+  judge?: string | null;
+  total?: number;
+  completed?: number;
+  ok?: boolean;
+  panel_count?: number;
+  failed_count?: number;
+}
+
 export interface StreamHandlers {
-  onProgress?: (msg: string) => void;
+  onProgress?: (event: ProgressEvent) => void;
   onContent?: (text: string) => void;
   onAnalysis?: (analysis: Record<string, unknown>) => void;
   onUsage?: (usage: any) => void;
@@ -67,8 +79,7 @@ function flushBlock(block: string, h: StreamHandlers) {
     return;
   }
   if (event === "progress") {
-    const count = data.panel_count != null ? ` (${data.panel_count} answers)` : "";
-    h.onProgress?.((data.message || "") + count);
+    h.onProgress?.(data as ProgressEvent);
   } else if (event === "analysis") {
     h.onAnalysis?.(data);
   } else if (event === "usage") {
