@@ -46,9 +46,10 @@ uvx --from git+https://github.com/shahar-dagan/openfusion openfusion   # ephemer
 # …or: pip install git+https://github.com/shahar-dagan/openfusion && openfusion
 ```
 
-Bare `openfusion` drops you into a chat with the model panel — streamed answers, live panel
-progress, and slash commands (`/preset`, `/tokens`, `/models`, `/clear`). On first run it asks for
-your OpenRouter key; run `openfusion setup` once to save it. Pipe for one-shots: `echo "…" | openfusion`.
+Bare `openfusion` drops you into a Rich-rendered chat with the model panel — a banner, a live
+panel-progress spinner, Markdown answers with syntax-highlighted code, and slash commands
+(`/preset`, `/tokens`, `/models`, `/clear`). On first run it asks for your OpenRouter key; run
+`openfusion setup` once to save it. Pipe for one-shots: `echo "…" | openfusion`.
 
 ### Web playground
 

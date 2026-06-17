@@ -180,9 +180,15 @@ def _ask_cli(argv: list[str]) -> None:
     run_ask(args.prompt, args.config, args.max_tokens)
 
 
-async def _chat_turn(messages: list[dict[str, str]], config: OpenFusionConfig) -> str:
-    """Run one fusion turn over the conversation, streaming to stdout; return the text."""
-    from openfusion.panel import gather_panel
+async def _chat_turn(
+    messages: list[dict[str, str]], config: OpenFusionConfig, console: object | None = None
+) -> str:
+    """Run one fusion turn over the conversation; return the answer text.
+
+    With a Rich ``console`` it renders a spinner + live Markdown; without one
+    (pipes/tests) it streams plain text to stdout.
+    """
+    from openfusion.panel import expand_panel_members, gather_panel
     from openfusion.ranked import pick_best
     from openfusion.synthesize import synthesize
     from openfusion.upstream import UpstreamClient
@@ -192,59 +198,101 @@ async def _chat_turn(messages: list[dict[str, str]], config: OpenFusionConfig) -
     body = {"messages": messages}
     parts: list[str] = []
     try:
-        sys.stderr.write("\033[2m· querying panel…\033[0m\n")
-        sys.stderr.flush()
-        panel = await gather_panel(body, config, client)
-        if config.aggregator == Aggregator.VOTE:
-            content, _ = majority_vote(panel)
-            print(content)
+        if console is None:
+            sys.stderr.write("\033[2m· querying panel…\033[0m\n")
+            sys.stderr.flush()
+            panel = await gather_panel(body, config, client)
+            if config.aggregator in (Aggregator.VOTE, Aggregator.RANKED):
+                if config.aggregator == Aggregator.VOTE:
+                    content, _ = majority_vote(panel)
+                else:
+                    content, _ = await pick_best(
+                        body, panel, config, client, timeout=config.timeouts.judge_seconds
+                    )
+                print(content)
+                parts.append(content)
+            else:
+                async for delta, _u, _r in synthesize(
+                    body, panel, config, client, timeout=config.timeouts.judge_seconds
+                ):
+                    if delta:
+                        sys.stdout.write(delta)
+                        sys.stdout.flush()
+                        parts.append(delta)
+                print()
+            return "".join(parts)
+
+        from rich.live import Live
+        from rich.markdown import Markdown
+
+        total = len(expand_panel_members(config))
+        done = {"n": 0}
+        content: str | None = None
+        with console.status("[dim]querying panel…[/dim]", spinner="dots") as status:
+
+            async def on_member(_label: str, _model: str, _ok: bool) -> None:
+                done["n"] += 1
+                status.update(f"[dim]querying panel · {done['n']}/{total} answered[/dim]")
+
+            panel = await gather_panel(body, config, client, on_member=on_member)
+            status.update("[dim]synthesizing…[/dim]")
+            if config.aggregator == Aggregator.VOTE:
+                content, _ = majority_vote(panel)
+            elif config.aggregator == Aggregator.RANKED:
+                content, _ = await pick_best(
+                    body, panel, config, client, timeout=config.timeouts.judge_seconds
+                )
+
+        console.print("[bold magenta]●[/bold magenta] [bold]openfusion[/bold]")
+        if content is not None:
             parts.append(content)
-        elif config.aggregator == Aggregator.RANKED:
-            content, _ = await pick_best(
-                body, panel, config, client, timeout=config.timeouts.judge_seconds
-            )
-            print(content)
-            parts.append(content)
+            console.print(Markdown(content))
         else:
-            async for delta, _usage, _reason in synthesize(
-                body, panel, config, client, timeout=config.timeouts.judge_seconds
-            ):
-                if delta:
-                    sys.stdout.write(delta)
-                    sys.stdout.flush()
-                    parts.append(delta)
-            print()
+            with Live(console=console, refresh_per_second=12, vertical_overflow="visible") as live:
+                async for delta, _u, _r in synthesize(
+                    body, panel, config, client, timeout=config.timeouts.judge_seconds
+                ):
+                    if delta:
+                        parts.append(delta)
+                        live.update(Markdown("".join(parts)))
+        console.print()
     finally:
         await client.aclose()
     return "".join(parts)
 
 
-def _models_line(config: OpenFusionConfig) -> str:
+def _models_markup(config: OpenFusionConfig) -> str:
     panel = ", ".join(m.model for m in config.panel) or "—"
     judge = config.judge.model if config.judge else "—"
-    agg = config.aggregator.value
-    return f"\033[2m· panel: {panel}\n· judge: {judge}  · aggregator: {agg}\033[0m"
+    return (
+        f"[dim]panel:[/dim] {panel}\n"
+        f"[dim]judge:[/dim] {judge}  [dim]·[/dim] {config.aggregator.value}"
+    )
 
 
 _CHAT_HELP = """\
-Commands:
-  /help            show this help
-  /models          show the active panel and judge
-  /preset NAME     switch recipe (quality | budget)
-  /tokens N        cap tokens per call
-  /clear           reset the conversation
-  /quit            exit  (or Ctrl-D)"""
+[bold]Commands[/bold]
+  [cyan]/help[/cyan]            show this help
+  [cyan]/models[/cyan]          show the active panel and judge
+  [cyan]/preset[/cyan] NAME     switch recipe (quality | budget)
+  [cyan]/tokens[/cyan] N        cap tokens per call
+  [cyan]/clear[/cyan]           reset the conversation
+  [cyan]/quit[/cyan]            exit  (or Ctrl-D)"""
 
 
 def run_chat(config_path: str | None, max_tokens: int | None) -> None:
     """Interactive REPL: chat with the model panel right in the terminal."""
+    from rich.console import Console
+    from rich.panel import Panel
+
+    console = Console()
     with contextlib.suppress(ImportError):
-        import readline  # noqa: F401 - enables arrow-key history for input()
+        import readline  # noqa: F401 - arrow-key history for input()
 
     try:
         config = load_config(config_path)
     except (FileNotFoundError, ValueError, ValidationError) as exc:
-        print(f"openfusion: could not load configuration.\n{exc}", file=sys.stderr)
+        console.print(f"[red]openfusion:[/red] could not load configuration.\n{exc}")
         raise SystemExit(1) from exc
     if max_tokens:
         config = apply_overrides(config, {"max_tokens": max_tokens})
@@ -254,22 +302,28 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
         if key:
             config = fill_missing_keys(config, key)
     if is_missing_api_key(config):
-        print(
-            "openfusion: no upstream API key. Set OPENROUTER_API_KEY or run `openfusion setup`.",
-            file=sys.stderr,
+        console.print(
+            "[red]openfusion:[/red] no upstream API key. "
+            "Set OPENROUTER_API_KEY or run `openfusion setup`."
         )
         raise SystemExit(1)
 
     base_config = config
-    print("\033[1mopenfusion\033[0m — chat with a model panel. /help for commands, Ctrl-D to exit.")
-    print(_models_line(config))
+    console.print(
+        Panel(
+            f"[bold]openfusion[/bold] — chat with a model panel\n{_models_markup(config)}\n"
+            "[dim]/help for commands · Ctrl-D to exit[/dim]",
+            border_style="magenta",
+            expand=False,
+        )
+    )
     messages: list[dict[str, str]] = []
 
     while True:
         try:
-            line = input("\n\033[1myou ›\033[0m ").strip()
+            line = console.input("\n[bold cyan]›[/bold cyan] ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\nbye")
+            console.print("\n[dim]bye[/dim]")
             return
         if not line:
             continue
@@ -278,42 +332,41 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
             cmd = tokens[0].lower()
             arg = tokens[1].strip() if len(tokens) > 1 else ""
             if cmd in ("q", "quit", "exit"):
-                print("bye")
+                console.print("[dim]bye[/dim]")
                 return
             elif cmd in ("h", "help", "?"):
-                print(_CHAT_HELP)
+                console.print(_CHAT_HELP)
             elif cmd == "models":
-                print(_models_line(config))
+                console.print(_models_markup(config))
             elif cmd == "clear":
                 messages.clear()
-                print("\033[2m· conversation cleared\033[0m")
+                console.print("[dim]· conversation cleared[/dim]")
             elif cmd == "preset":
                 if arg in ("quality", "budget"):
                     config = apply_overrides(base_config, {"preset": arg})
-                    print(f"\033[2m· switched to {arg}\033[0m")
-                    print(_models_line(config))
+                    console.print(f"[dim]· switched to {arg}[/dim]")
+                    console.print(_models_markup(config))
                 else:
-                    print("usage: /preset quality|budget")
+                    console.print("usage: /preset quality|budget")
             elif cmd == "tokens":
                 if arg.isdigit() and int(arg) > 0:
                     config = apply_overrides(config, {"max_tokens": int(arg)})
-                    print(f"\033[2m· max tokens per call = {arg}\033[0m")
+                    console.print(f"[dim]· max tokens per call = {arg}[/dim]")
                 else:
-                    print("usage: /tokens <n>")
+                    console.print("usage: /tokens <n>")
             else:
-                print(f"unknown command: /{cmd} (try /help)")
+                console.print(f"unknown command: /{cmd} (try /help)")
             continue
 
         messages.append({"role": "user", "content": line})
-        print()
         try:
-            answer = asyncio.run(_chat_turn(messages, config))
+            answer = asyncio.run(_chat_turn(messages, config, console))
         except KeyboardInterrupt:
-            print("\n\033[2m· cancelled\033[0m")
+            console.print("[dim]· cancelled[/dim]")
             messages.pop()
             continue
         except Exception as exc:  # noqa: BLE001 - keep the REPL alive on errors
-            print(f"\n\033[31m[error]\033[0m {exc}", file=sys.stderr)
+            console.print(f"[red][error][/red] {exc}")
             messages.pop()
             continue
         messages.append({"role": "assistant", "content": answer})

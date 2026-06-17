@@ -13,9 +13,10 @@ proxy — fan a prompt out to a panel of models, have a judge synthesize one
 stronger answer — usable as a CLI chat, a web playground, or a drop-in API.
 
 ### Interfaces
-- **`openfusion`** opens an interactive chat REPL with the model panel: streamed
-  answers, live per-member panel progress, conversation history, and slash
-  commands (`/preset`, `/tokens`, `/models`, `/clear`, `/help`).
+- **`openfusion`** opens a Rich-rendered interactive chat REPL with the model
+  panel: a banner, a spinner with live per-member panel progress, Markdown +
+  syntax-highlighted answers, conversation history, and slash commands
+  (`/preset`, `/tokens`, `/models`, `/clear`, `/help`).
 - **`openfusion web`** (alias `serve`) starts the server + web playground.
 - **`openfusion ask "…"`** runs a one-shot fusion to stdout; `echo … | openfusion`
   pipes a one-shot too.
