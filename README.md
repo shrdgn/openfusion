@@ -12,23 +12,49 @@ back a single synthesized answer that aims to beat any one of them.
 It's the open version of the mixture-of-agents idea behind OpenRouter's Fusion: better answers
 from models you already pay for, as a tunable, forkable recipe instead of a black box.
 
+**[Quick start](#quick-start)** · [How it works](#how-it-works) · [Playground](#playground) ·
+[Routing & strategies](#routing--strategies) · [vs. OpenRouter Fusion](#openfusion-vs-openrouter-fusion) ·
+[Benchmarks](#benchmarks) · [Contributing](CONTRIBUTING.md)
+
+## Project layout
+
+New here? You only need the first two to run it; the rest is for tuning and contributing.
+
+| Path | What it is |
+|------|-----------|
+| `openfusion/` | The proxy (FastAPI). Start with `server.py`; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the module map. |
+| `web/` | The playground UI source (React + shadcn). Built assets ship in `openfusion/static/`. |
+| `openfusion.*.yaml.example` | Copy-paste config recipes (preset, dev, panel, bench…). You don't need a config to start. |
+| `bench/` | Reproducible head-to-head harness; `bench/FINDINGS.md` is where fusion does and doesn't pay off. |
+| `DESIGN.md` · `docs/` | Design rationale, architecture, and security notes. |
+
 ## Status
 
-**MVP** — self-fusion proxy with panel fan-out, judge synthesis, SSE streaming, and pass-through
-for non-fusion models and tool calls. See [DESIGN.md](DESIGN.md) for architecture and
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for module boundaries and security notes.
+**Beta** — panel fan-out, judge synthesis, SSE streaming, web-tool fusion, an Auto Router, debate/
+vote/ranked aggregators, production limits, and an interactive playground. See [DESIGN.md](DESIGN.md)
+and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for architecture and security notes.
 
 ## Quick start
 
+Pick one (no clone, no config, no env vars needed):
+
 ```bash
-pip install -e .   # not yet on PyPI
-openfusion         # boots with zero config and opens the playground
+# Run it (ephemeral, needs uv — https://docs.astral.sh/uv/)
+uvx --from git+https://github.com/shahar-dagan/openfusion openfusion
+
+# …or install it
+pip install git+https://github.com/shahar-dagan/openfusion && openfusion
+
+# …or Docker (after a release tag publishes the image)
+docker run -p 8000:8000 ghcr.io/shahar-dagan/openfusion
 ```
 
 Then open **http://localhost:8000** — it redirects to the playground, where you paste your
-OpenRouter API key (held only in the server's memory) and start fusing. No config file, no env vars.
-With nothing configured, openfusion boots the **Budget** preset (a diverse panel + judge with web
-search) so the first run lands where fusion actually wins.
+OpenRouter API key (held only in the server's memory) and start fusing. With nothing configured,
+openfusion boots the **Budget** preset (a diverse panel + judge with web search) so the first run
+lands where fusion actually wins.
+
+Developing on a clone? `pip install -e .` then `openfusion`.
 
 Prefer the terminal? Set the key in the environment instead and skip the UI prompt:
 
@@ -120,24 +146,36 @@ multi-replica deployments, an edge rate limiter.
 
 ## How it works
 
-```
-client (Cursor / OpenAI SDK / anything)
-        │  POST /v1/chat/completions   model="openfusion"
-        ▼
-   openfusion proxy ──► panel member A ┐
-                   ──► panel member B ├─ parallel fan-out
-                   ──► panel member C ┘
-                        │
-                        ▼
-                   judge model  ──►  streamed synthesized answer (SSE)
+A request to `model: "openfusion"` is fanned out to a panel of models in parallel (each optionally
+doing its own web research), then a judge model reads every answer and synthesizes one — streamed
+back over SSE, with the structured analysis and cost alongside.
+
+```mermaid
+flowchart LR
+    C["Client<br/>(Cursor · OpenAI SDK · anything)"] -->|"POST /v1/chat/completions<br/>model=openfusion"| R{"Router<br/><i>(optional)</i>"}
+    R -->|simple prompt| S["Single model"] --> OUT
+    R -->|worth fusing| P
+
+    subgraph P ["Panel · parallel fan-out"]
+        direction TB
+        A["Model A 🔍"]
+        B["Model B 🔍"]
+        D["Model C 🔍"]
+    end
+
+    P --> J["Judge<br/>consensus · contradictions · blind spots"]
+    J --> OUT["Streamed answer (SSE)<br/>+ analysis + token/cost"]
+    C -.->|other model / client tools| S
+
+    classDef accent fill:#eef2ff,stroke:#4f46e5,color:#3730a3;
+    class J,R accent;
 ```
 
 - **Drop-in.** OpenAI-compatible `POST /v1/chat/completions` + `/v1/models`, real SSE streaming.
-- **Default recipe is self-fusion.** Sample one model N times and judge the spread — works on a
-  single API key without multi-provider juggling.
 - **No lock-in.** Each panel member + judge is `{base_url, api_key, model}`. OpenRouter is the
   default upstream; OpenAI, Together, local vLLM/Ollama all work.
-- **Config-driven.** Panel, judge, strategy, and timeouts live in `openfusion.yaml`.
+- **Config-driven.** Panel, judge, strategy, aggregator, router, and limits live in `openfusion.yaml`
+  — or a one-word `preset`, or nothing at all (zero-config quick start).
 
 ## openfusion vs. OpenRouter Fusion
 

@@ -1,8 +1,25 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUp, Github, KeyRound, Loader2, Plus, Sparkles, X } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  Github,
+  KeyRound,
+  Loader2,
+  Plus,
+  Settings,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -20,12 +37,13 @@ export default function App() {
   const [webSearch, setWebSearch] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [token, setToken] = useState("");
-  const [showSettings, setShowSettings] = useState(false);
 
   const [needsKey, setNeedsKey] = useState(false);
+  const [keySet, setKeySet] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [keySaving, setKeySaving] = useState(false);
   const [keyError, setKeyError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
@@ -46,6 +64,7 @@ export default function App() {
         setWebSearch(cfg.tools?.web_search ?? false);
         setPreset((cfg.preset as Preset) || "custom");
         setNeedsKey(cfg.needs_api_key && cfg.allow_ui_api_key);
+        setKeySet(cfg.api_key_set || !cfg.needs_api_key);
       })
       .catch((err) => setStatus(err.message));
   }, []);
@@ -63,8 +82,10 @@ export default function App() {
     setKeySaving(true);
     setKeyError("");
     try {
-      await setApiKey(keyInput.trim());
+      const res = await setApiKey(keyInput.trim());
       setNeedsKey(false);
+      setKeySet(res.api_key_set);
+      setKeyInput("");
     } catch (err: any) {
       setKeyError(err.message);
     } finally {
@@ -120,14 +141,36 @@ export default function App() {
           openfusion
         </a>
         <Badge>playground</Badge>
-        <a
-          href="https://github.com/shahar-dagan/openfusion"
-          className="ml-auto text-muted-foreground hover:text-foreground"
-          aria-label="GitHub"
-        >
-          <Github className="h-5 w-5" />
-        </a>
+        <nav className="ml-auto flex items-center gap-1">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <Settings className="h-4 w-4" /> Settings
+          </button>
+          <a
+            href="https://github.com/shahar-dagan/openfusion"
+            className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label="GitHub"
+          >
+            <Github className="h-5 w-5" />
+          </a>
+        </nav>
       </header>
+
+      <SettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        config={config}
+        keySet={keySet}
+        token={token}
+        onToken={setToken}
+        keyInput={keyInput}
+        onKeyInput={setKeyInput}
+        onSaveKey={saveKey}
+        keySaving={keySaving}
+        keyError={keyError}
+      />
 
       <main className="mx-auto w-full max-w-3xl px-4 pb-24 pt-12">
         <div className="mb-8 text-center">
@@ -223,31 +266,12 @@ export default function App() {
                 <Switch checked={webSearch} onCheckedChange={setWebSearch} />
                 Web search
               </label>
-              <button
-                className="text-sm text-muted-foreground hover:text-foreground"
-                onClick={() => setShowSettings((s) => !s)}
-              >
-                Settings
-              </button>
               <div className="flex-1" />
               <Button onClick={run} disabled={busy || !prompt.trim()}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                 Fuse
               </Button>
             </div>
-
-            {showSettings && (
-              <div className="flex flex-col gap-1.5 border-t pt-3">
-                <Label htmlFor="gw">Gateway token (optional)</Label>
-                <Input
-                  id="gw"
-                  type="password"
-                  placeholder="Bearer token if your server requires one"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
-              </div>
-            )}
 
             {!allowOverrides && config && (
               <p className="text-xs text-muted-foreground">
@@ -277,6 +301,98 @@ export default function App() {
         )}
       </main>
     </div>
+  );
+}
+
+function SettingsDialog({
+  open,
+  onOpenChange,
+  config,
+  keySet,
+  token,
+  onToken,
+  keyInput,
+  onKeyInput,
+  onSaveKey,
+  keySaving,
+  keyError,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  config: ActiveConfig | null;
+  keySet: boolean;
+  token: string;
+  onToken: (v: string) => void;
+  keyInput: string;
+  onKeyInput: (v: string) => void;
+  onSaveKey: () => void;
+  keySaving: boolean;
+  keyError: string;
+}) {
+  const canSetKey = config?.allow_ui_api_key ?? false;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Settings</DialogTitle>
+          <DialogDescription>
+            Keys are kept only in this server's memory and never reach the browser of other users.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="settings-key">OpenRouter API key</Label>
+          {canSetKey ? (
+            <>
+              <div className="flex gap-2">
+                <Input
+                  id="settings-key"
+                  type="password"
+                  placeholder={keySet ? "•••••••• (set) — paste to replace" : "sk-or-v1-…"}
+                  value={keyInput}
+                  onChange={(e) => onKeyInput(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && onSaveKey()}
+                />
+                <Button onClick={onSaveKey} disabled={keySaving || !keyInput.trim()}>
+                  {keySaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                </Button>
+              </div>
+              {keySet && !keyInput && (
+                <p className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Check className="h-3.5 w-3.5 text-primary" /> A key is configured.
+                </p>
+              )}
+              {keyError && <p className="text-sm text-destructive">{keyError}</p>}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              This server is configured with a fixed key (UI key entry is disabled).
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Label htmlFor="settings-token">Gateway token (optional)</Label>
+          <Input
+            id="settings-token"
+            type="password"
+            placeholder="Bearer token if your server requires one"
+            value={token}
+            onChange={(e) => onToken(e.target.value)}
+          />
+          <p className="text-xs text-muted-foreground">
+            Sent as <code>Authorization: Bearer …</code> to a server with a gateway allowlist.
+          </p>
+        </div>
+
+        {config && (
+          <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+            Active server: {config.panel.length} panel models · judge {config.judge || "—"} ·
+            overrides {config.allow_request_overrides ? "on" : "off"}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
