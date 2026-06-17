@@ -27,9 +27,25 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/markdown";
-import { type ActiveConfig, getConfig, setApiKey, streamFusion } from "@/lib/api";
+import {
+  type ActiveConfig,
+  getConfig,
+  type ProgressEvent,
+  setApiKey,
+  streamFusion,
+} from "@/lib/api";
 
 type Preset = "quality" | "budget" | "custom";
+
+interface ProgressState {
+  stage: "panel" | "synthesis";
+  models: string[];
+  judge: string | null;
+  total: number;
+  completed: number;
+  failed: number;
+  streaming: boolean;
+}
 
 export default function App() {
   const [config, setConfig] = useState<ActiveConfig | null>(null);
@@ -47,8 +63,11 @@ export default function App() {
   const [keyError, setKeyError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const [maxTokens, setMaxTokens] = useState(1024);
+
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState<ProgressState | null>(null);
   const [answer, setAnswer] = useState("");
   const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
   const [usage, setUsage] = useState<any>(null);
@@ -100,6 +119,7 @@ export default function App() {
     setBusy(true);
     setHasRun(true);
     setStatus("Sending…");
+    setProgress(null);
     setAnswer("");
     answerRef.current = "";
     setAnalysis(null);
@@ -115,14 +135,16 @@ export default function App() {
         panel: panel.filter(Boolean),
         judge,
         tools: { web_search: webSearch },
+        max_tokens: maxTokens,
       };
     }
 
     await streamFusion(payload, token.trim() || undefined, {
-      onProgress: setStatus,
+      onProgress: (e: ProgressEvent) => handleProgress(e),
       onContent: (text) => {
         answerRef.current += text;
         setAnswer(answerRef.current);
+        setProgress((p) => (p ? { ...p, streaming: true } : p));
       },
       onAnalysis: setAnalysis,
       onUsage: setUsage,
@@ -130,7 +152,31 @@ export default function App() {
     });
 
     setBusy(false);
+    setProgress((p) => (p ? { ...p, streaming: true } : p));
     setStatus((s) => (s.startsWith("Error") ? s : "Done."));
+  }
+
+  function handleProgress(e: ProgressEvent) {
+    if (e.stage === "panel") {
+      setProgress({
+        stage: "panel",
+        models: e.models || [],
+        judge: e.judge ?? null,
+        total: e.total || (e.models ? e.models.length : 0),
+        completed: 0,
+        failed: 0,
+        streaming: false,
+      });
+    } else if (e.stage === "panel_member") {
+      setProgress((p) =>
+        p
+          ? { ...p, completed: e.completed ?? p.completed, failed: p.failed + (e.ok ? 0 : 1) }
+          : p,
+      );
+    } else if (e.stage === "synthesis" || e.stage === "vote" || e.stage === "ranked") {
+      setProgress((p) => (p ? { ...p, stage: "synthesis", judge: e.judge ?? p.judge } : p));
+    }
+    setStatus(e.message || "");
   }
 
   return (
@@ -172,6 +218,8 @@ export default function App() {
         onSaveKey={saveKey}
         keySaving={keySaving}
         keyError={keyError}
+        maxTokens={maxTokens}
+        onMaxTokens={setMaxTokens}
       />
 
       <main className="mx-auto w-full max-w-3xl px-4 pb-24 pt-12">
@@ -286,10 +334,14 @@ export default function App() {
 
         {hasRun && (
           <div className="mt-6 flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {status}
-            </div>
+            {progress ? (
+              <ProgressPanel progress={progress} />
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {status}
+              </div>
+            )}
             <Card>
               <CardContent>
                 {answer ? (
@@ -331,6 +383,8 @@ function SettingsDialog({
   onSaveKey,
   keySaving,
   keyError,
+  maxTokens,
+  onMaxTokens,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -343,6 +397,8 @@ function SettingsDialog({
   onSaveKey: () => void;
   keySaving: boolean;
   keyError: string;
+  maxTokens: number;
+  onMaxTokens: (v: number) => void;
 }) {
   const canSetKey = config?.allow_ui_api_key ?? false;
   return (
@@ -387,6 +443,24 @@ function SettingsDialog({
         </div>
 
         <div className="flex flex-col gap-2">
+          <Label htmlFor="settings-tokens">Response length (max tokens per call)</Label>
+          <select
+            id="settings-tokens"
+            value={maxTokens}
+            onChange={(e) => onMaxTokens(Number(e.target.value))}
+            className="h-10 rounded-md border bg-card px-3 text-sm"
+          >
+            <option value={512}>Short (~512)</option>
+            <option value={1024}>Medium (~1024)</option>
+            <option value={2048}>Long (~2048)</option>
+            <option value={4096}>Very long (~4096)</option>
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Caps every panel and judge call — lower is faster and cheaper.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2">
           <Label htmlFor="settings-token">Gateway token (optional)</Label>
           <Input
             id="settings-token"
@@ -408,6 +482,62 @@ function SettingsDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ProgressPanel({ progress }: { progress: ProgressState }) {
+  const panelDone = progress.completed >= progress.total && progress.total > 0;
+  const Step = ({
+    active,
+    done,
+    children,
+  }: {
+    active: boolean;
+    done: boolean;
+    children: React.ReactNode;
+  }) => (
+    <div className="flex items-center gap-2 text-sm">
+      {done ? (
+        <Check className="h-4 w-4 text-primary" />
+      ) : active ? (
+        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+      ) : (
+        <span className="h-4 w-4 rounded-full border" />
+      )}
+      <span className={done || active ? "text-foreground" : "text-muted-foreground"}>
+        {children}
+      </span>
+    </div>
+  );
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3 py-4">
+        <Step active={progress.stage === "panel"} done={panelDone}>
+          Querying panel — {progress.completed}/{progress.total} answered
+          {progress.failed > 0 ? ` · ${progress.failed} failed` : ""}
+        </Step>
+        {progress.models.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 pl-6">
+            {progress.models.map((m, i) => (
+              <span
+                key={i}
+                className={
+                  "rounded-md border px-2 py-0.5 text-xs " +
+                  (i < progress.completed
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground")
+                }
+              >
+                {m}
+              </span>
+            ))}
+          </div>
+        )}
+        <Step active={progress.stage === "synthesis" && !progress.streaming} done={progress.streaming}>
+          Synthesizing{progress.judge ? ` with ${progress.judge}` : ""}
+        </Step>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -10,7 +10,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from openfusion.config import OpenFusionConfig
-from openfusion.panel import PanelResult, gather_panel
+from openfusion.panel import PanelResult, expand_panel_members, gather_panel
 from openfusion.ranked import pick_best
 from openfusion.synthesize import ANALYSIS_SENTINEL, synthesize
 from openfusion.upstream import UpstreamClient
@@ -21,6 +21,62 @@ def _sse_line(event: str | None, data: str) -> str:
     if event:
         return f"event: {event}\ndata: {data}\n\n"
     return f"data: {data}\n\n"
+
+
+def _progress(payload: dict[str, Any]) -> str:
+    return _sse_line("progress", json.dumps(payload))
+
+
+async def gather_with_progress(
+    request_body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+    *,
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[str | PanelResult]:
+    """Run the panel, yielding progress SSE lines per member, then the PanelResult.
+
+    Yields `event: progress` strings as members finish, and finally yields the
+    `PanelResult` (the consumer should `isinstance`-check the last item).
+    """
+    members = expand_panel_members(config)
+    panel_models = [member.model for member, _ in members]
+    total = len(members)
+    yield _progress(
+        {
+            "stage": "panel",
+            "message": f"Querying {total} model{'s' if total != 1 else ''}",
+            "models": panel_models,
+            "total": total,
+            "judge": config.judge.model if config.judge else None,
+        }
+    )
+
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def on_member(label: str, model: str, ok: bool) -> None:
+        await queue.put({"model": model, "label": label, "ok": ok})
+
+    task = asyncio.create_task(
+        gather_panel(request_body, config, client, cancel_event=cancel_event, on_member=on_member)
+    )
+    done = 0
+    while not task.done() or not queue.empty():
+        try:
+            item = await asyncio.wait_for(queue.get(), timeout=0.2)
+        except TimeoutError:
+            continue
+        done += 1
+        yield _progress(
+            {
+                "stage": "panel_member",
+                "model": item["model"],
+                "ok": item["ok"],
+                "completed": done,
+                "total": total,
+            }
+        )
+    yield await task
 
 
 class _AnalysisSplitter:
@@ -107,28 +163,33 @@ async def synthesize_and_stream(
     created = int(time.time())
     model = config.fusion_model_name
 
-    yield _sse_line(
-        "progress",
-        json.dumps({"stage": "panel", "message": "Gathering panel responses"}),
-    )
+    panel: PanelResult | None = None
+    try:
+        async for item in gather_with_progress(
+            request_body, config, client, cancel_event=cancel_event
+        ):
+            if isinstance(item, PanelResult):
+                panel = item
+            else:
+                yield item
+    except Exception as exc:  # noqa: BLE001 - panel failed; report and end the stream
+        yield _sse_line(
+            None,
+            json.dumps(
+                {"error": {"message": str(exc), "type": "upstream_error", "code": "panel_error"}}
+            ),
+        )
+        yield _sse_line(None, "[DONE]")
+        return
+    assert panel is not None
 
-    panel = await gather_panel(
-        request_body,
-        config,
-        client,
-        cancel_event=cancel_event,
-    )
-
-    yield _sse_line(
-        "progress",
-        json.dumps(
-            {
-                "stage": "synthesis",
-                "message": "Synthesizing final answer",
-                "panel_count": len(panel.responses),
-                "failed_count": len(panel.failures),
-            }
-        ),
+    yield _progress(
+        {
+            "stage": "synthesis",
+            "message": f"Synthesizing with {config.judge.model if config.judge else 'judge'}",
+            "panel_count": len(panel.responses),
+            "failed_count": len(panel.failures),
+        }
     )
 
     role_sent = False
@@ -254,12 +315,15 @@ async def vote_and_stream(
     created = int(time.time())
     model = config.fusion_model_name
 
-    yield _sse_line(
-        "progress",
-        json.dumps({"stage": "panel", "message": "Gathering panel responses"}),
-    )
-
-    panel = await gather_panel(request_body, config, client, cancel_event=cancel_event)
+    panel: PanelResult | None = None
+    async for item in gather_with_progress(
+        request_body, config, client, cancel_event=cancel_event
+    ):
+        if isinstance(item, PanelResult):
+            panel = item
+        else:
+            yield item
+    assert panel is not None
     content, vote_meta = majority_vote(panel)
 
     yield _sse_line(
@@ -392,11 +456,15 @@ async def ranked_and_stream(
     created = int(time.time())
     model = config.fusion_model_name
 
-    yield _sse_line(
-        "progress",
-        json.dumps({"stage": "panel", "message": "Gathering panel responses"}),
-    )
-    panel = await gather_panel(request_body, config, client, cancel_event=cancel_event)
+    panel: PanelResult | None = None
+    async for item in gather_with_progress(
+        request_body, config, client, cancel_event=cancel_event
+    ):
+        if isinstance(item, PanelResult):
+            panel = item
+        else:
+            yield item
+    assert panel is not None
     content, meta = await pick_best(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
     )

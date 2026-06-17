@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
@@ -80,4 +82,15 @@ async def test_stream_emits_progress_and_done(mock_router) -> None:
     assert events[-1][1] == "[DONE]"
     content_events = [data for event, data in events if event is None and data != "[DONE]"]
     assert any("final" in data for data in content_events)
+
+    # Live per-member breakdown: one panel_member event per member, plus a
+    # leading "panel" stage that names the models and the judge.
+    progress = [json.loads(data) for event, data in events if event == "progress"]
+    panel_stage = next(p for p in progress if p.get("stage") == "panel")
+    assert panel_stage["total"] == 3 and len(panel_stage["models"]) == 3
+    assert panel_stage["judge"] == "judge"
+    member_events = [p for p in progress if p.get("stage") == "panel_member"]
+    assert len(member_events) == 3
+    assert member_events[-1]["completed"] == 3 and member_events[-1]["total"] == 3
+    assert all(p["ok"] for p in member_events)
     await client.aclose()
