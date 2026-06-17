@@ -21,30 +21,31 @@ for non-fusion models and tool calls. See [DESIGN.md](DESIGN.md) for architectur
 ## Quick start
 
 ```bash
-# Install from source (not yet on PyPI)
-pip install -e .
+pip install -e .   # not yet on PyPI
+openfusion         # boots with zero config and opens the playground
+```
 
-# Pick a one-line recipe and set your key
-cp openfusion.preset.yaml.example openfusion.yaml   # contains: preset: budget
+Then open **http://localhost:8000** — it redirects to the playground, where you paste your
+OpenRouter API key (held only in the server's memory) and start fusing. No config file, no env vars.
+With nothing configured, openfusion boots the **Budget** preset (a diverse panel + judge with web
+search) so the first run lands where fusion actually wins.
+
+Prefer the terminal? Set the key in the environment instead and skip the UI prompt:
+
+```bash
 export OPENROUTER_API_KEY=your-key-here
-
-# Run the server
 openfusion --host 0.0.0.0 --port 8000
 ```
 
-A **preset** is the whole recipe: `preset: quality` (or `budget`) expands to a diverse OpenRouter
-panel plus a judge with web search/fetch enabled — the tool-enabled regime where fusion actually
-beats the best single member (see [Benchmarks](#benchmarks)). This mirrors OpenRouter Fusion's
-Quality/Budget switch. Anything you set explicitly in YAML overrides the preset.
+For a fixed recipe, write an `openfusion.yaml` (start from `openfusion.preset.yaml.example` —
+`preset: quality | budget`, or `openfusion.yaml.example` for a fully spelled-out panel/judge). A
+**preset** expands to a diverse OpenRouter panel + judge with web tools on, mirroring OpenRouter
+Fusion's Quality/Budget switch:
 
 | Preset | Panel | Judge | Tools |
 |--------|-------|-------|-------|
 | `quality` | Claude Sonnet 4 · Gemini 3 Pro · DeepSeek V4 Pro | Claude Sonnet 4 | web search + fetch |
 | `budget` | GPT-4o-mini · DeepSeek V4 Pro · Kimi K2.6 | DeepSeek V4 Pro | web search + fetch |
-
-Prefer to spell out every model, or run the cheaper self-fusion recipe on a single model? Start
-from `openfusion.yaml.example` (full panel/judge config) or `openfusion.dev.yaml.example` (a smaller
-two-sample, low-cost, strict-ceiling recipe for local testing) instead.
 
 Use with the OpenAI Python SDK:
 
@@ -241,33 +242,39 @@ Cost (`usage.cost`, when the upstream reports it) is also rolled into the per-re
 spent across the panel and judge. Per-call structured logs remain on the `openfusion.upstream`
 logger.
 
-## Stack
-
-Python 3.11+ / FastAPI / httpx / uvicorn.
-
 ## Playground
 
-The server hosts an interactive playground at `GET /playground` — a zero-build, single-page UI
-(no separate frontend workspace) that talks only to the local `/v1` API, so provider keys never
-reach the browser. Run the server, open `http://localhost:8000/playground`, and you can:
+The server hosts an interactive playground at `GET /playground` (and `GET /` redirects there). It's
+a React + Tailwind + shadcn UI whose **built assets ship in the package** (no Node needed to run);
+it talks only to the local `/v1` API, so provider keys never reach the browser. You can:
 
+- paste your OpenRouter API key on first run (held only in server memory; enabled by
+  `allow_ui_api_key`, on for the zero-config quick start),
 - pick a **Quality / Budget / Custom** panel and a "Fuse with" judge model,
 - toggle web search, send a prompt, and watch the **panel → synthesis** progress,
 - read the streamed answer plus the judge's **structured analysis** (consensus / contradictions /
   blind spots) and the **token + cost** breakdown.
 
-The model selectors are read-only unless the server sets `allow_request_overrides: true`, which
-enables the per-request `openfusion: { preset | panel | judge | tools }` field (mirroring OpenRouter
-Fusion's `analysis_models`/`model` plugin fields). Overrides reuse the server's upstream
-credentials — clients choose model *ids*, never keys — and stay bounded by the gateway auth, cost
-ceilings, and rate limits. Read `GET /v1/config` for the active panel/judge and whether overrides
-are allowed.
+The model selectors are editable when the server sets `allow_request_overrides: true` (on for the
+quick start), which enables the per-request `openfusion: { preset | panel | judge | tools }` field
+(mirroring OpenRouter Fusion's `analysis_models`/`model` plugin fields). Overrides reuse the
+server's upstream credentials — clients choose model *ids*, never keys — and stay bounded by gateway
+auth, cost ceilings, and rate limits. Read `GET /v1/config` for the active panel/judge and flags.
 
-## Landing page
+### Developing the UI
 
-The service serves a static project landing page from `GET /`. See
-[docs/LANDING_PAGE.md](docs/LANDING_PAGE.md) for the repo-local website decision, migration trigger,
-and security concerns to revisit before a hosted product accepts public traffic.
+The UI source lives in `web/` (Vite + React + TypeScript + Tailwind v4 + shadcn-style components):
+
+```bash
+cd web
+npm install
+npm run dev      # dev server (proxy /v1 to a running openfusion on :8000)
+npm run build    # writes built assets into openfusion/static/playground/ (commit them)
+```
+
+## Stack
+
+Backend: Python 3.11+ / FastAPI / httpx / uvicorn. Frontend: React / Vite / Tailwind / shadcn.
 
 ## Contributing
 

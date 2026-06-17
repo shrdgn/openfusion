@@ -85,3 +85,27 @@ def apply_overrides(config: OpenFusionConfig, override: dict[str, Any]) -> OpenF
             new.tools.web_fetch = bool(tools["web_fetch"])
 
     return new
+
+
+def is_missing_api_key(config: OpenFusionConfig) -> bool:
+    """True when a present upstream member has no API key configured."""
+    if any(not member.api_key for member in config.panel):
+        return True
+    if config.judge is not None and not config.judge.api_key:
+        return True
+    return config.pass_through is not None and not config.pass_through.api_key
+
+
+def fill_missing_keys(config: OpenFusionConfig, api_key: str | None) -> OpenFusionConfig:
+    """Fill empty upstream API keys with a runtime key (e.g. set from the UI)."""
+    if not api_key or not is_missing_api_key(config):
+        return config
+    new = config.model_copy(deep=True)
+    for member in new.panel:
+        if not member.api_key:
+            member.api_key = api_key
+    if new.judge is not None and not new.judge.api_key:
+        new.judge.api_key = api_key
+    if new.pass_through is not None and not new.pass_through.api_key:
+        new.pass_through.api_key = api_key
+    return new

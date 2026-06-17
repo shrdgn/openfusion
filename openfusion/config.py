@@ -247,6 +247,9 @@ class OpenFusionConfig(BaseModel):
     # `openfusion` request field (used by the playground). Off by default: when
     # on it's still bounded by gateway auth, cost ceilings, and rate limits.
     allow_request_overrides: bool = False
+    # Allow the upstream API key to be set at runtime from the playground UI.
+    # On for the zero-config quick start; keep off for shared/hosted servers.
+    allow_ui_api_key: bool = False
 
     def resolved_pass_through(self) -> PassThroughConfig:
         if self.pass_through is not None:
@@ -339,20 +342,52 @@ def _load_gateway_keys(raw: dict[str, Any]) -> list[str]:
     return keys
 
 
+def quickstart_config() -> OpenFusionConfig:
+    """Zero-config default so `openfusion` boots with no YAML and no env key.
+
+    Uses the Budget preset with web tools on. The OpenRouter key is read from
+    OPENROUTER_API_KEY if present, otherwise left empty so the user can paste it
+    into the playground. UI key entry and per-request overrides are enabled so
+    the quick start "just works"; a hosted server should ship a real config.
+    """
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    spec = _PRESETS[Preset.BUDGET]
+    return OpenFusionConfig(
+        preset=Preset.BUDGET,
+        strategy=Strategy.PANEL,
+        panel=[
+            PanelMember(base_url=OPENROUTER_BASE_URL, api_key=key, model=model, label=f"panel-{i}")
+            for i, model in enumerate(spec["panel_models"])
+        ],
+        judge=JudgeConfig(base_url=OPENROUTER_BASE_URL, api_key=key, model=spec["judge_model"]),
+        pass_through=PassThroughConfig(
+            base_url=OPENROUTER_BASE_URL, api_key=key, model=spec["pass_through_model"]
+        ),
+        tools=ToolsConfig(web_search=True, web_fetch=True),
+        cost_controls=CostControlsConfig(
+            pass_through_max_tokens=1024, panel_max_tokens=1024, judge_max_tokens=2048
+        ),
+        allow_ui_api_key=True,
+        allow_request_overrides=True,
+    )
+
+
 def load_config(path: str | Path | None = None) -> OpenFusionConfig:
-    """Load configuration from YAML and environment variables."""
+    """Load configuration from YAML and environment variables.
+
+    With no config file and no explicit path, returns the zero-config quick-start
+    default (Budget preset) so the server boots and the key can be added in the UI.
+    """
     config_path = Path(path or os.environ.get("OPENFUSION_CONFIG", "openfusion.yaml"))
     if not config_path.exists():
-        example = Path("openfusion.yaml.example")
-        if example.exists() and path is None:
-            config_path = example
-        else:
-            raise FileNotFoundError(
-                f"Config file not found: {config_path}. "
-                "Copy an example to get started, e.g. "
-                "`cp openfusion.preset.yaml.example openfusion.yaml`, "
-                "then set OPENROUTER_API_KEY."
-            )
+        if path is None:
+            return quickstart_config()
+        raise FileNotFoundError(
+            f"Config file not found: {config_path}. "
+            "Copy an example to get started, e.g. "
+            "`cp openfusion.preset.yaml.example openfusion.yaml`, "
+            "then set OPENROUTER_API_KEY."
+        )
 
     with config_path.open(encoding="utf-8") as handle:
         raw: dict[str, Any] = yaml.safe_load(handle) or {}

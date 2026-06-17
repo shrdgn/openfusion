@@ -7,6 +7,21 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Zero-config quick start** — `openfusion` now boots with no config file and no env key (Budget
+  preset), and `GET /` redirects to the playground. Paste your OpenRouter key in the UI to start.
+- **Runtime API key** — `POST /v1/runtime/api-key` sets the upstream key in server memory (gated by
+  `allow_ui_api_key`, on for the quick start). `GET /v1/config` reports `needs_api_key`.
+- **React + Tailwind + shadcn playground** — the playground is now a proper SPA (source in `web/`,
+  built assets shipped in the package), replacing the vanilla page.
+
+### Changed
+- The default-config fallback is the zero-config quick start instead of `openfusion.yaml.example`.
+
+### Removed
+- The static marketing landing page (`/`) and `docs/LANDING_PAGE.md`; `/` now redirects to the
+  playground.
+
+### Added (playground)
 - **Interactive playground** at `GET /playground` — a zero-build single-page UI that talks only to
   the local `/v1` API (provider keys never reach the browser). Pick a Quality/Budget/Custom panel
   and judge, toggle web search, and watch the streamed answer, structured analysis, and token/cost.

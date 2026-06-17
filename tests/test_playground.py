@@ -32,7 +32,15 @@ async def test_playground_page_is_served(client: httpx.AsyncClient) -> None:
     response = await client.get("/playground/")
     assert response.status_code == 200
     assert "text/html" in response.headers["content-type"]
-    assert "Model Fusion" in response.text
+    # Built single-page app shell (content is rendered client-side).
+    assert '<div id="root">' in response.text
+    assert "/playground/assets/" in response.text
+
+
+async def test_root_redirects_to_playground(client: httpx.AsyncClient) -> None:
+    response = await client.get("/", follow_redirects=False)
+    assert response.status_code in (307, 308)
+    assert response.headers["location"] == "/playground/"
 
 
 async def test_override_rejected_when_disabled(client: httpx.AsyncClient) -> None:

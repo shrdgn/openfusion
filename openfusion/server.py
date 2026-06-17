@@ -12,7 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import (
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
@@ -32,7 +37,7 @@ from openfusion.errors import (
 )
 from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
-from openfusion.overrides import apply_overrides
+from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
 from openfusion.router import RouteDecision, route_async
 from openfusion.stream import (
     buffer_ranked,
@@ -47,7 +52,6 @@ from openfusion.upstream import UpstreamClient
 
 FUSION_MODEL = "openfusion"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
-LANDING_PAGE_DIR = STATIC_DIR / "landing"
 PLAYGROUND_DIR = STATIC_DIR / "playground"
 
 
@@ -61,7 +65,8 @@ def _preset_summary() -> dict[str, Any]:
     }
 
 
-def _active_config_payload(cfg: OpenFusionConfig) -> dict[str, Any]:
+def _active_config_payload(cfg: OpenFusionConfig, runtime_key: str | None) -> dict[str, Any]:
+    needs_key = is_missing_api_key(cfg) and not runtime_key
     return {
         "preset": cfg.preset.value if cfg.preset else None,
         "strategy": cfg.strategy.value,
@@ -70,6 +75,9 @@ def _active_config_payload(cfg: OpenFusionConfig) -> dict[str, Any]:
         "judge": cfg.judge.model if cfg.judge else None,
         "tools": {"web_search": cfg.tools.web_search, "web_fetch": cfg.tools.web_fetch},
         "allow_request_overrides": cfg.allow_request_overrides,
+        "allow_ui_api_key": cfg.allow_ui_api_key,
+        "needs_api_key": needs_key,
+        "api_key_set": bool(runtime_key),
         "presets": _preset_summary(),
         "fusion_model": cfg.fusion_model_name,
     }
@@ -150,16 +158,16 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     app.state.config = app_config
     app.state.upstream_client = upstream_client
     app.state.limiter = RequestLimiter(app_config.limits)
-    app.mount(
-        "/landing",
-        StaticFiles(directory=LANDING_PAGE_DIR),
-        name="landing",
-    )
+    app.state.runtime_api_key = None
     app.mount(
         "/playground",
         StaticFiles(directory=PLAYGROUND_DIR, html=True),
         name="playground",
     )
+
+    @app.exception_handler(OpenFusionError)
+    async def _openfusion_error_handler(_: Request, exc: OpenFusionError) -> JSONResponse:
+        return _error_response(exc)
 
     def get_config() -> OpenFusionConfig:
         return app.state.config
@@ -168,8 +176,8 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
         return app.state.upstream_client
 
     @app.get("/", include_in_schema=False)
-    async def landing_page() -> FileResponse:
-        return FileResponse(LANDING_PAGE_DIR / "index.html", media_type="text/html")
+    async def root() -> RedirectResponse:
+        return RedirectResponse(url="/playground/")
 
     @app.get("/healthz")
     async def healthz() -> dict[str, str]:
@@ -184,7 +192,28 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
 
     @app.get("/v1/config")
     async def active_config(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
-        return _active_config_payload(cfg)
+        return _active_config_payload(cfg, app.state.runtime_api_key)
+
+    @app.post("/v1/runtime/api-key")
+    async def set_runtime_api_key(
+        request: Request, cfg: OpenFusionConfig = Depends(get_config)
+    ) -> dict[str, Any]:
+        if not cfg.allow_ui_api_key:
+            raise OpenFusionError(
+                "Setting the API key from the UI is disabled on this server",
+                error_type="permission_error",
+                code="ui_key_disabled",
+                status_code=403,
+            )
+        try:
+            body = await request.json()
+        except json.JSONDecodeError as exc:
+            raise InvalidRequestError(f"Invalid JSON: {exc}") from exc
+        if not isinstance(body, dict):
+            raise InvalidRequestError("Request body must be a JSON object")
+        key = str(body.get("api_key", "")).strip()
+        app.state.runtime_api_key = key or None
+        return {"ok": True, "api_key_set": bool(key)}
 
     @app.get("/v1/models")
     async def list_models(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
@@ -248,6 +277,14 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
                         "Per-request overrides are disabled on this server"
                     )
                 cfg = apply_overrides(cfg, override)
+
+            cfg = fill_missing_keys(cfg, app.state.runtime_api_key)
+            if is_missing_api_key(cfg):
+                raise InvalidRequestError(
+                    "No upstream API key configured. Add one in the playground "
+                    "or set OPENROUTER_API_KEY.",
+                    code="no_api_key",
+                )
 
             policy = CostPolicy(cfg.cost_controls)
             policy.validate_max_tokens(body)
