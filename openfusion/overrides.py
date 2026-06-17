@@ -121,3 +121,15 @@ def fill_missing_keys(config: OpenFusionConfig, api_key: str | None) -> OpenFusi
     if new.pass_through is not None and not new.pass_through.api_key:
         new.pass_through.api_key = api_key
     return new
+
+
+def set_all_keys(config: OpenFusionConfig, api_key: str) -> OpenFusionConfig:
+    """Force every upstream API key to ``api_key`` (used to replace a bad key)."""
+    new = config.model_copy(deep=True)
+    for member in new.panel:
+        member.api_key = api_key
+    if new.judge is not None:
+        new.judge.api_key = api_key
+    if new.pass_through is not None:
+        new.pass_through.api_key = api_key
+    return new

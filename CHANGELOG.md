@@ -13,6 +13,9 @@ proxy — fan a prompt out to a panel of models, have a judge synthesize one
 stronger answer — usable as a CLI chat, a web playground, or a drop-in API.
 
 ### Interfaces
+- **Saved API key** — the CLI persists your OpenRouter key to
+  `~/.config/openfusion/credentials` (chmod 600) on first entry, so `openfusion`
+  doesn't re-prompt each run; `/key` re-enters it, and env vars take precedence.
 - **`openfusion`** opens a Rich-rendered interactive chat REPL with the model
   panel: a banner, a spinner with live per-member panel progress, Markdown +
   syntax-highlighted answers, conversation history, and slash commands

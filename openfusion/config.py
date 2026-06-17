@@ -351,6 +351,10 @@ def quickstart_config() -> OpenFusionConfig:
     the quick start "just works"; a hosted server should ship a real config.
     """
     key = os.environ.get("OPENROUTER_API_KEY", "")
+    if not key:
+        from openfusion.credentials import load_saved_key
+
+        key = load_saved_key() or ""
     spec = _PRESETS[Preset.BUDGET]
     return OpenFusionConfig(
         preset=Preset.BUDGET,

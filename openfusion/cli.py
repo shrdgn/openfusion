@@ -22,7 +22,13 @@ from openfusion.config import (
     Preset,
     load_config,
 )
-from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
+from openfusion.credentials import load_saved_key, save_key
+from openfusion.overrides import (
+    apply_overrides,
+    fill_missing_keys,
+    is_missing_api_key,
+    set_all_keys,
+)
 
 
 def _summarize_config(config: OpenFusionConfig, host: str, port: int) -> str:
@@ -105,6 +111,7 @@ def run_setup() -> None:
     path.write_text(build_setup_yaml(preset, key), encoding="utf-8")
     with contextlib.suppress(OSError):
         path.chmod(0o600)
+    save_key(key)  # also persist for `openfusion` runs from other directories
 
     print(
         f"\n✓ Wrote {path} ({preset} preset, panel + judge with web search).\n"
@@ -160,6 +167,7 @@ def run_ask(prompt: str, config_path: str | None, max_tokens: int | None) -> Non
         raise SystemExit(1) from exc
     if max_tokens:
         config = apply_overrides(config, {"max_tokens": max_tokens})
+    config = fill_missing_keys(config, load_saved_key())
     if is_missing_api_key(config):
         print(
             "openfusion: no upstream API key. Set OPENROUTER_API_KEY or run `openfusion setup`.",
@@ -276,6 +284,7 @@ _CHAT_HELP = """\
   [cyan]/models[/cyan]          show the active panel and judge
   [cyan]/preset[/cyan] NAME     switch recipe (quality | budget)
   [cyan]/tokens[/cyan] N        cap tokens per call
+  [cyan]/key[/cyan]             re-enter your OpenRouter API key
   [cyan]/clear[/cyan]           reset the conversation
   [cyan]/quit[/cyan]            exit  (or Ctrl-D)"""
 
@@ -297,10 +306,14 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
     if max_tokens:
         config = apply_overrides(config, {"max_tokens": max_tokens})
 
+    if is_missing_api_key(config):
+        config = fill_missing_keys(config, load_saved_key())
     if is_missing_api_key(config) and sys.stdin.isatty():
-        key = getpass.getpass("OpenRouter API key (or run `openfusion setup`): ").strip()
+        key = getpass.getpass("OpenRouter API key (saved for next time): ").strip()
         if key:
             config = fill_missing_keys(config, key)
+            save_key(key)
+            console.print("[dim]· key saved to ~/.config/openfusion/credentials[/dim]")
     if is_missing_api_key(config):
         console.print(
             "[red]openfusion:[/red] no upstream API key. "
@@ -354,6 +367,13 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
                     console.print(f"[dim]· max tokens per call = {arg}[/dim]")
                 else:
                     console.print("usage: /tokens <n>")
+            elif cmd == "key":
+                new_key = getpass.getpass("OpenRouter API key: ").strip()
+                if new_key:
+                    config = set_all_keys(config, new_key)
+                    base_config = set_all_keys(base_config, new_key)
+                    save_key(new_key)
+                    console.print("[dim]· key updated and saved[/dim]")
             else:
                 console.print(f"unknown command: /{cmd} (try /help)")
             continue
@@ -366,7 +386,13 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
             messages.pop()
             continue
         except Exception as exc:  # noqa: BLE001 - keep the REPL alive on errors
-            console.print(f"[red][error][/red] {exc}")
+            msg = str(exc)
+            console.print(f"[red][error][/red] {msg}")
+            low = msg.lower()
+            if "401" in msg or "api key" in low or "unauthor" in low or "credit" in low:
+                console.print(
+                    "[dim]· the key may be invalid or out of credit — use /key to re-enter it[/dim]"
+                )
             messages.pop()
             continue
         messages.append({"role": "assistant", "content": answer})
