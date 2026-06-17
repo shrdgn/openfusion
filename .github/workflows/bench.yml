@@ -26,7 +26,7 @@ on:
     inputs:
       config:
         description: "openfusion config file"
-        default: "openfusion.dev.yaml.example"
+        default: "examples/dev.yaml.example"
         type: string
       tasks:
         description: "JSONL task file (ignored if dataset is set)"
@@ -68,7 +68,7 @@ jobs:
       OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       # Branch suffix selects the preset; workflow_dispatch inputs override.
       # 'vote' in the branch name -> vote config; 'gsm8k' -> GSM8K + bench config + 512 tokens.
-      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'draco') && 'openfusion.draco.yaml.example' || (contains(github.ref_name, 'vote') && 'openfusion.bench-vote.yaml.example' || (contains(github.ref_name, 'tools') && 'openfusion.panel-tools.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'openfusion.panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'openfusion.panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'openfusion.bench.yaml.example' || 'openfusion.dev.yaml.example')))))) }}
+      CONFIG: ${{ github.event.inputs.config || (contains(github.ref_name, 'draco') && 'examples/draco.yaml.example' || (contains(github.ref_name, 'vote') && 'examples/bench-vote.yaml.example' || (contains(github.ref_name, 'tools') && 'examples/panel-tools.yaml.example' || (contains(github.ref_name, 'strongsynth') && 'examples/panel-strongsynth.yaml.example' || (contains(github.ref_name, 'panel') && 'examples/panel.yaml.example' || ((contains(github.ref_name, 'gsm8k') || contains(github.ref_name, 'research')) && 'examples/bench.yaml.example' || 'examples/dev.yaml.example')))))) }}
       DATASET: ${{ github.event.inputs.dataset || (contains(github.ref_name, 'gsm8k') && 'gsm8k' || '') }}
       LIMIT: ${{ github.event.inputs.limit || (contains(github.ref_name, 'draco') && '10' || '40') }}
       TASKS: ${{ github.event.inputs.tasks || (endsWith(github.ref_name, '/sample') && 'bench/tasks/sample.jsonl' || 'bench/tasks/smoke.jsonl') }}

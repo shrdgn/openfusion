@@ -81,7 +81,7 @@ DRACO's authors note system rankings are stable across judge/format choices.
 - **Tool-enabled fusion works — it shipped and is validated.** Set
   `tools.web_search: true` (+ `web_fetch`) to give panel members the agentic
   `openrouter:web_search`/`web_fetch` server tools; see
-  `openfusion.panel-tools.yaml.example`. The corrected gate (tools on both
+  `examples/panel-tools.yaml.example`. The corrected gate (tools on both
   sides) confirmed the lift. Run it with `run-bench/research-paneltools`.
 - **Next: DRACO for the quotable number.** The gate is small-N (14 decided,
   wide CI) and uses a pairwise judge that can't verify currency. A credible

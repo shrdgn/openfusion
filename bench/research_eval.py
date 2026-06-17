@@ -247,7 +247,7 @@ def summarize(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Pairwise solo-vs-fusion research eval")
-    parser.add_argument("--config", default="openfusion.bench.yaml.example")
+    parser.add_argument("--config", default="examples/bench.yaml.example")
     parser.add_argument("--tasks", default="bench/tasks/research.jsonl")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--solo-model", default=None)

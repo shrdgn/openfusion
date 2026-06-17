@@ -56,8 +56,8 @@ server-side. `GET /v1/config` exposes the active panel/judge and onboarding flag
 
 ## Configuration and secrets
 
-- Runtime config lives in `openfusion.yaml` (gitignored). Use `openfusion.yaml.example` as the template.
-- `openfusion.dev.yaml.example` is the low-cost live-test recipe; it is intentionally smaller than
+- Runtime config lives in `openfusion.yaml` (gitignored). Use `examples/default.yaml.example` as the template.
+- `examples/dev.yaml.example` is the low-cost live-test recipe; it is intentionally smaller than
   the default self-fusion example.
 - `${ENV_VAR}` placeholders in YAML are expanded at load time; missing env vars fail fast.
 - Upstream provider API keys come from config/env only. Client `Authorization` is an optional openfusion gateway token.

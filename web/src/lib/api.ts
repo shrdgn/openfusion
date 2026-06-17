@@ -13,20 +13,32 @@ export interface ActiveConfig {
   fusion_model: string;
 }
 
+const UNREACHABLE =
+  "Couldn't reach the openfusion server. Open the page that the running server serves " +
+  "(e.g. http://localhost:8000) — not a static file or a different port.";
+
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(path, init);
+  } catch {
+    throw new Error(UNREACHABLE);
+  }
+}
+
 export async function getConfig(): Promise<ActiveConfig> {
-  const res = await fetch("/v1/config");
+  const res = await apiFetch("/v1/config");
   if (!res.ok) throw new Error("Could not load config (" + res.status + ")");
   return res.json();
 }
 
 export async function setApiKey(key: string): Promise<{ api_key_set: boolean }> {
-  const res = await fetch("/v1/runtime/api-key", {
+  const res = await apiFetch("/v1/runtime/api-key", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ api_key: key }),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body?.error?.message || "Failed to set key");
+  if (!res.ok) throw new Error(body?.error?.message || `Failed to set key (${res.status})`);
   return body;
 }
 
@@ -72,11 +84,17 @@ function flushBlock(block: string, h: StreamHandlers) {
 export async function streamFusion(payload: any, token: string | undefined, h: StreamHandlers) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
-  const res = await fetch("/v1/chat/completions", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
+  let res: Response;
+  try {
+    res = await apiFetch("/v1/chat/completions", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    h.onError?.((err as Error).message);
+    return;
+  }
   if (!res.ok || !res.body) {
     const body = await res.json().catch(() => ({}));
     h.onError?.(body?.error?.message || `Request failed (${res.status})`);

@@ -7,6 +7,18 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **`openfusion setup`** — an interactive first-run wizard that prompts for your OpenRouter key and
+  a recipe, then writes a private `openfusion.yaml`. The startup banner now nudges you to the
+  playground (or `openfusion setup`) when no key is configured.
+
+### Changed
+- Moved the example configs from the repo root into `examples/` to declutter the top level.
+
+### Fixed
+- The playground now shows a clear "couldn't reach the server" message instead of a bare
+  "Failed to fetch", and the API-key prompt reliably clears once a key is applied.
+
+### Added (continued)
 - **Zero-config quick start** — `openfusion` now boots with no config file and no env key (Budget
   preset), and `GET /` redirects to the playground. Paste your OpenRouter key in the UI to start.
 - **Runtime API key** — `POST /v1/runtime/api-key` sets the upstream key in server memory (gated by
@@ -15,7 +27,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   built assets shipped in the package), replacing the vanilla page.
 
 ### Changed
-- The default-config fallback is the zero-config quick start instead of `openfusion.yaml.example`.
+- The default-config fallback is the zero-config quick start instead of `examples/default.yaml.example`.
 
 ### Removed
 - The static marketing landing page (`/`) and `docs/LANDING_PAGE.md`; `/` now redirects to the
@@ -57,7 +69,7 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   panel + judge with web search/fetch enabled by default (the regime where
   synthesis beats the best single member per `bench/FINDINGS.md`). Mirrors
   OpenRouter Fusion's Quality/Budget UX. Explicit YAML always overrides a preset.
-- `openfusion.preset.yaml.example` — one-line recipe to copy.
+- `examples/preset.yaml.example` — one-line recipe to copy.
 - "unique insights" added to the judge synthesis prompt, matching Fusion's
   synthesis dimensions (consensus / contradictions / partial coverage /
   unique insights / blind spots).

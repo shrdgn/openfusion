@@ -7,7 +7,7 @@ export default defineConfig({
   base: "/playground/",
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@": path.resolve(__dirname, "src") } },
-  server: { proxy: { "/v1": "http://localhost:8000" } },
+  server: { proxy: { "/v1": { target: "http://localhost:8000", changeOrigin: true } } },
   build: {
     outDir: path.resolve(__dirname, "../openfusion/static/playground"),
     emptyOutDir: true,

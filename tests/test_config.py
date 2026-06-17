@@ -12,7 +12,7 @@ from openfusion.config import Aggregator, OpenFusionConfig, Strategy, load_confi
 def test_load_example_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "secret-key")
     config_path = tmp_path / "openfusion.yaml"
-    example = Path("openfusion.yaml.example").read_text(encoding="utf-8")
+    example = Path("examples/default.yaml.example").read_text(encoding="utf-8")
     config_path.write_text(example, encoding="utf-8")
 
     config = load_config(config_path)
@@ -30,7 +30,7 @@ def test_load_example_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
 def test_load_dev_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OPENROUTER_API_KEY", "secret-key")
     config_path = tmp_path / "openfusion.dev.yaml"
-    example = Path("openfusion.dev.yaml.example").read_text(encoding="utf-8")
+    example = Path("examples/dev.yaml.example").read_text(encoding="utf-8")
     config_path.write_text(example, encoding="utf-8")
 
     config = load_config(config_path)

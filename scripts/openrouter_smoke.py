@@ -125,7 +125,7 @@ async def run(args: argparse.Namespace) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run a live, low-token OpenRouter smoke test.")
-    parser.add_argument("--config", default="openfusion.dev.yaml.example")
+    parser.add_argument("--config", default="examples/dev.yaml.example")
     parser.add_argument("--gateway-key", default="smoke-key")
     parser.add_argument("--pass-max-tokens", type=int, default=16)
     parser.add_argument("--fusion-max-tokens", type=int, default=20)

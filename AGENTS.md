@@ -18,7 +18,7 @@ startup update script).
 
 ### Config and end-to-end runs (non-obvious)
 - The server loads `OPENFUSION_CONFIG` (default `openfusion.yaml`); if neither exists it falls
-  back to `openfusion.yaml.example`. The example points at OpenRouter and requires
+  back to `examples/default.yaml.example`. The example points at OpenRouter and requires
   `OPENROUTER_API_KEY` — config loading **raises** if a referenced `${ENV_VAR}` is unset.
 - For a real end-to-end fusion request (`model: "openfusion"`) you need an OpenAI-compatible
   upstream. With no real key, point the config's `panel`/`judge`/`pass_through` at any local

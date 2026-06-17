@@ -6,8 +6,20 @@ from pathlib import Path
 
 import pytest
 
-from openfusion.cli import _summarize_config
+from openfusion.cli import _summarize_config, build_setup_yaml
 from openfusion.config import load_config
+
+
+def test_setup_yaml_loads_into_valid_config(tmp_path: Path) -> None:
+    config_path = tmp_path / "openfusion.yaml"
+    config_path.write_text(build_setup_yaml("budget", "sk-xyz"), encoding="utf-8")
+
+    config = load_config(config_path)
+
+    assert len(config.panel) == 3
+    assert all(member.api_key == "sk-xyz" for member in config.panel)
+    assert config.judge is not None and config.judge.api_key == "sk-xyz"
+    assert config.tools.web_search is True
 
 
 def test_summarize_config_reports_preset_and_tools(
@@ -28,7 +40,7 @@ def test_summarize_config_reports_preset_and_tools(
 
 def test_missing_config_file_has_actionable_hint(tmp_path: Path) -> None:
     missing = tmp_path / "nope.yaml"
-    with pytest.raises(FileNotFoundError, match="cp openfusion.preset.yaml.example"):
+    with pytest.raises(FileNotFoundError, match="cp examples/preset.yaml.example"):
         load_config(missing)
 
 

@@ -261,7 +261,7 @@ def summarize(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DRACO rubric-graded solo-vs-fusion eval")
-    parser.add_argument("--config", default="openfusion.draco.yaml.example")
+    parser.add_argument("--config", default="examples/draco.yaml.example")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--base-url", default="http://127.0.0.1:8000/v1")
     parser.add_argument("--solo-model", default=None)

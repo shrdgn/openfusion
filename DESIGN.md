@@ -124,7 +124,7 @@ The edges where an OpenAI-compatible proxy lives or dies. Decided up front.
 
 ## Build order
 
-1. Scaffold: `pyproject.toml`, `openfusion/` package, `openfusion.yaml.example`, ruff + pytest.
+1. Scaffold: `pyproject.toml`, `openfusion/` package, `examples/default.yaml.example`, ruff + pytest.
 2. `/v1/chat/completions` happy path: parse OpenAI request, fan out a 1-member panel, pass through.
 3. `gather_panel` concurrency + per-member timeout + graceful degrade.
 4. `synthesize` judge + SSE streaming with progress events.
