@@ -6,6 +6,16 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Model routing** — when `router.route_models` is set, the single-model branch
+  picks the best model for the prompt by difficulty (cheap for easy, frontier for
+  hard). `mode: never` gives pure routing; `mode: heuristic` fuses hard prompts
+  and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
+
+### Fixed
+- Router SOLO requests now forward the configured single model upstream instead
+  of the literal string `"openfusion"`.
+
 ## [0.1.0] — 2026-06-17
 
 First public release. openfusion is an open, OpenAI-compatible mixture-of-agents

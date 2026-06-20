@@ -1,0 +1,38 @@
+# Model routing: send each prompt to the best single model by difficulty.
+# With `mode: never` the router never fuses — it just picks one model per prompt
+# (cheap for easy prompts, frontier for hard ones). Use `mode: heuristic` instead
+# to fuse the hard prompts and route only the easy ones.
+#
+# Copy to openfusion.yaml and set OPENROUTER_API_KEY.
+
+router:
+  enabled: true
+  mode: never           # never | heuristic | always | model
+  route_models:
+    - model: openai/gpt-4o-mini
+      tier: fast         # short / simple prompts
+    - model: deepseek/deepseek-v4-pro
+      tier: balanced
+    - model: anthropic/claude-sonnet-4
+      tier: strong       # long, analytical, or code prompts
+
+# A panel is still required (used when the router decides to fuse, and for the
+# default credentials the routed models reuse).
+panel:
+  - base_url: https://openrouter.ai/api/v1
+    api_key: ${OPENROUTER_API_KEY}
+    model: openai/gpt-4o-mini
+    label: panel
+
+judge:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: deepseek/deepseek-v4-pro
+
+pass_through:
+  base_url: https://openrouter.ai/api/v1
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+
+gateway:
+  api_keys: []

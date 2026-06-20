@@ -123,12 +123,31 @@ _DEFAULT_FUSE_KEYWORDS = [
 ]
 
 
+class Tier(StrEnum):
+    """Rough capability/cost band for model routing."""
+
+    FAST = "fast"  # cheap, for simple prompts
+    BALANCED = "balanced"
+    STRONG = "strong"  # frontier, for hard prompts
+
+
+class RouteModel(BaseModel):
+    """A candidate the router can send a single prompt to (cost/quality band)."""
+
+    model: str
+    tier: Tier = Tier.BALANCED
+    base_url: str | None = None  # falls back to the default upstream credentials
+    api_key: str | None = None
+
+
 class RouterConfig(BaseModel):
     """Per-prompt gate: send simple prompts to a single model, fuse hard ones.
 
     Disabled by default — when off, every `openfusion` request is fused. When on,
     short/simple prompts are answered by one pass-through call (cheaper, faster)
-    and only prompts that look like they benefit from a panel are fused.
+    and only prompts that look like they benefit from a panel are fused. When
+    ``route_models`` is set, the single-model branch picks the best model for the
+    prompt by difficulty (set ``mode: never`` for pure routing with no fusion).
     """
 
     enabled: bool = False
@@ -139,6 +158,9 @@ class RouterConfig(BaseModel):
     # to the heuristic if unset or if the classification call fails.
     classifier: PanelMember | None = None
     classifier_max_tokens: int = Field(default=4, ge=1, le=64)
+    # Candidates for the single-model (SOLO) branch; empty = use the default
+    # pass-through model.
+    route_models: list[RouteModel] = Field(default_factory=list)
 
 
 class DebateConfig(BaseModel):

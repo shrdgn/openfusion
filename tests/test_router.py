@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+import json
+
 import httpx
 import pytest
 
-from openfusion.config import OpenFusionConfig, PanelMember, RouterConfig, RouterMode
-from openfusion.router import RouteDecision, route, route_async
+from openfusion.config import (
+    JudgeConfig,
+    OpenFusionConfig,
+    PanelMember,
+    RouteModel,
+    RouterConfig,
+    RouterMode,
+    Strategy,
+    Tier,
+    TimeoutsConfig,
+)
+from openfusion.router import RouteDecision, prompt_tier, route, route_async, select_model
 from openfusion.server import _requires_pass_through_tools, create_app
 from openfusion.tools import WEB_FETCH_TYPE, WEB_SEARCH_TYPE
 from openfusion.upstream import UpstreamClient
@@ -115,21 +127,17 @@ async def test_router_solo_answers_with_single_call(
 ) -> None:
     test_config.router = RouterConfig(enabled=True, mode=RouterMode.NEVER)
     app = create_app(test_config)
-    upstream = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
-        return_value=httpx.Response(
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content)["model"])
+        return httpx.Response(
             200,
-            json={
-                "id": "solo",
-                "object": "chat.completion",
-                "choices": [
-                    {
-                        "index": 0,
-                        "message": {"role": "assistant", "content": "single answer"},
-                        "finish_reason": "stop",
-                    }
-                ],
-            },
+            json={"choices": [{"message": {"role": "assistant", "content": "single answer"}}]},
         )
+
+    upstream = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=handler
     )
 
     transport = httpx.ASGITransport(app=app)
@@ -142,5 +150,96 @@ async def test_router_solo_answers_with_single_call(
 
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "single answer"
-    # SOLO routing makes exactly one upstream call, not a panel fan-out.
+    # SOLO routing makes exactly one upstream call to the configured single model
+    # (not a panel fan-out, and not the literal "openfusion").
     assert upstream.call_count == 1
+    assert seen == ["pass-model"]
+
+
+def test_prompt_tier_buckets() -> None:
+    assert prompt_tier("hi") == Tier.FAST
+    assert prompt_tier("x " * 120) == Tier.BALANCED  # ~240 chars
+    assert prompt_tier("compare Postgres and SQLite") == Tier.STRONG  # keyword
+    assert prompt_tier("```py\nprint(1)\n```") == Tier.STRONG  # code
+
+
+def _routes() -> RouterConfig:
+    return RouterConfig(
+        enabled=True,
+        mode=RouterMode.NEVER,  # pure routing, never fuse
+        route_models=[
+            RouteModel(model="cheap/fast", tier=Tier.FAST),
+            RouteModel(model="mid/balanced", tier=Tier.BALANCED),
+            RouteModel(model="frontier/strong", tier=Tier.STRONG),
+        ],
+    )
+
+
+def test_select_model_by_difficulty() -> None:
+    cfg = _routes()
+    assert select_model(_body("hi"), cfg).model == "cheap/fast"
+    assert select_model(_body("analyze the trade-offs here"), cfg).model == "frontier/strong"
+
+
+def test_select_model_falls_back_to_nearest_tier() -> None:
+    cfg = RouterConfig(
+        enabled=True,
+        route_models=[RouteModel(model="only/strong", tier=Tier.STRONG)],
+    )
+    # Easy prompt wants FAST, but only STRONG exists -> nearest available.
+    assert select_model(_body("hi"), cfg).model == "only/strong"
+
+
+def test_select_model_none_without_candidates() -> None:
+    assert select_model(_body("hi"), RouterConfig(enabled=True)) is None
+
+
+def test_routes_helper_unused_guard() -> None:
+    # _routes() documents a full route_models config; ensure it builds.
+    assert len(_routes().route_models) == 3
+
+
+@pytest.mark.asyncio
+async def test_router_routes_to_best_model_end_to_end(mock_router) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content)["model"])
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]}
+        )
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(side_effect=handler)
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        router=RouterConfig(
+            enabled=True,
+            mode=RouterMode.NEVER,
+            route_models=[
+                RouteModel(model="cheap/fast", tier=Tier.FAST),
+                RouteModel(model="frontier/strong", tier=Tier.STRONG),
+            ],
+        ),
+        panel=[PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="base")],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
+        timeouts=TimeoutsConfig(member_seconds=5, judge_seconds=5, total_seconds=15),
+    )
+    app = create_app(config)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        easy = await http_client.post(
+            "/v1/chat/completions",
+            json={"model": "openfusion", "messages": [{"role": "user", "content": "hi"}]},
+        )
+        hard = await http_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openfusion",
+                "messages": [{"role": "user", "content": "analyze the trade-offs in depth"}],
+            },
+        )
+    await app.state.upstream_client.aclose()
+
+    assert easy.status_code == 200 and hard.status_code == 200
+    assert seen == ["cheap/fast", "frontier/strong"]

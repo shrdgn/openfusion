@@ -12,7 +12,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from openfusion.config import RouterConfig, RouterMode
+from openfusion.config import RouteModel, RouterConfig, RouterMode, Tier
 from openfusion.cost import RequestPhase
 from openfusion.upstream import UpstreamClient
 
@@ -47,6 +47,52 @@ def _user_text(body: dict[str, Any]) -> str:
                     if isinstance(block, dict) and isinstance(block.get("text"), str):
                         parts.append(block["text"])
     return "\n".join(parts)
+
+
+_STRONG_KEYWORDS = (
+    "analyze",
+    "analyse",
+    "compare",
+    "evaluate",
+    "design",
+    "research",
+    "explain why",
+    "trade-off",
+    "tradeoff",
+    "prove",
+    "debug",
+    "architecture",
+)
+
+
+def prompt_tier(text: str) -> Tier:
+    """Estimate how hard a prompt is, for single-model routing."""
+    lowered = text.lower()
+    if "```" in text or len(text) >= 600 or any(k in lowered for k in _STRONG_KEYWORDS):
+        return Tier.STRONG
+    if len(text) >= 200:
+        return Tier.BALANCED
+    return Tier.FAST
+
+
+# When the ideal tier has no candidate, fall back to the nearest available band.
+_TIER_FALLBACK: dict[Tier, list[Tier]] = {
+    Tier.FAST: [Tier.FAST, Tier.BALANCED, Tier.STRONG],
+    Tier.BALANCED: [Tier.BALANCED, Tier.STRONG, Tier.FAST],
+    Tier.STRONG: [Tier.STRONG, Tier.BALANCED, Tier.FAST],
+}
+
+
+def select_model(body: dict[str, Any], config: RouterConfig) -> RouteModel | None:
+    """Pick the best single model for this prompt, or None to use the default."""
+    if not config.route_models:
+        return None
+    want = prompt_tier(_user_text(body))
+    for tier in _TIER_FALLBACK[want]:
+        for candidate in config.route_models:
+            if candidate.tier == tier:
+                return candidate
+    return config.route_models[0]
 
 
 def route(body: dict[str, Any], config: RouterConfig) -> RouteDecision:

@@ -26,6 +26,8 @@ from openfusion.config import (
     Aggregator,
     OpenFusionConfig,
     PanelMember,
+    PassThroughConfig,
+    RouteModel,
     load_config,
 )
 from openfusion.cost import CostPolicy, RequestPhase
@@ -38,7 +40,7 @@ from openfusion.errors import (
 from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
 from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
-from openfusion.router import RouteDecision, route_async
+from openfusion.router import RouteDecision, route_async, select_model
 from openfusion.stream import (
     buffer_ranked,
     buffer_synthesis,
@@ -293,10 +295,12 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
             wants_fusion = model == cfg.fusion_model_name and not _requires_pass_through_tools(
                 body
             )
+            routed: PassThroughConfig | None = None
             if wants_fusion and cfg.router.enabled:
                 decision = await route_async(body, cfg.router, client)
                 if decision == RouteDecision.SOLO:
                     wants_fusion = False
+                    routed = _routed_pass_through(cfg, select_model(body, cfg.router))
 
             acquired = limiter.acquire()
 
@@ -308,7 +312,7 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
                     reject_over_limit=True,
                 )
                 response = await _pass_through(
-                    limited_body, cfg, client, stream=stream, started=started
+                    limited_body, cfg, client, stream=stream, started=started, override=routed
                 )
                 if not stream:
                     _record_request(route_label, "success", started)
@@ -346,6 +350,20 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     return app
 
 
+def _routed_pass_through(
+    config: OpenFusionConfig, route_model: RouteModel | None
+) -> PassThroughConfig | None:
+    """Build a pass-through target for a router-selected model (or None for default)."""
+    if route_model is None:
+        return None
+    base = config.resolved_pass_through()
+    return PassThroughConfig(
+        base_url=route_model.base_url or base.base_url,
+        api_key=route_model.api_key or base.api_key,
+        model=route_model.model,
+    )
+
+
 async def _pass_through(
     body: dict[str, Any],
     config: OpenFusionConfig,
@@ -353,19 +371,24 @@ async def _pass_through(
     *,
     stream: bool,
     started: float,
+    override: PassThroughConfig | None = None,
 ) -> Any:
-    pass_through = config.resolved_pass_through()
+    pass_through = override or config.resolved_pass_through()
+    requested = body.get("model")
+    if override is not None:
+        chosen = override.model
+    elif isinstance(requested, str) and requested != config.fusion_model_name:
+        chosen = requested  # a direct pass-through of a named model
+    else:
+        chosen = pass_through.model  # router/solo: use the configured single model
     member = PanelMember(
         base_url=pass_through.base_url,
         api_key=pass_through.api_key,
-        model=body.get("model", pass_through.model),
+        model=chosen,
         label="pass-through",
     )
 
-    if body.get("model") != config.fusion_model_name:
-        member = member.model_copy(update={"model": str(body["model"])})
-
-    payload = {**body, "model": member.model}
+    payload = {**body, "model": chosen}
     result = await client.chat_completion(
         member,
         payload,

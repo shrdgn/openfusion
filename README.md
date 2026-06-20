@@ -118,19 +118,23 @@ openfusion ask "Compare Postgres and SQLite for a small SaaS." --max-tokens 800
 Three knobs control *whether* and *how* a prompt is fused. All are optional and off/default.
 
 - **Auto Router** (`router.enabled: true`) — a per-prompt gate that answers simple prompts with a
-  single pass-through call and reserves the panel for prompts that look like they benefit (long,
-  analytical, or containing code). Default is a cheap heuristic (no extra model call); `mode: model`
-  uses a small classifier model and falls back to the heuristic if it errors:
+  single model and reserves the panel for prompts that look like they benefit (long, analytical, or
+  containing code). Default is a cheap heuristic (no extra model call); `mode: model` uses a small
+  classifier and falls back to the heuristic if it errors.
+
+  Add `route_models` to also **route to the best single model** by difficulty — cheap for easy
+  prompts, frontier for hard ones (set `mode: never` for pure routing with no fusion, like
+  RouteLLM/OpenRouter Auto; `mode: heuristic` to fuse the hard ones and route the rest). See
+  [`examples/route.yaml.example`](examples/route.yaml.example):
 
   ```yaml
   router:
     enabled: true
-    mode: heuristic     # heuristic | model | always | never
-    min_chars: 280      # prompts at/over this length fuse
-    # classifier:       # required for mode: model
-    #   base_url: https://openrouter.ai/api/v1
-    #   api_key: ${OPENROUTER_API_KEY}
-    #   model: openai/gpt-4o-mini
+    mode: never         # never (pure routing) | heuristic (route + fuse) | always | model
+    route_models:
+      - { model: openai/gpt-4o-mini, tier: fast }
+      - { model: deepseek/deepseek-v4-pro, tier: balanced }
+      - { model: anthropic/claude-sonnet-4, tier: strong }
   ```
 
 - **Strategy** (`strategy:`) — how the panel is produced: `self_fusion` (one model sampled N times),
