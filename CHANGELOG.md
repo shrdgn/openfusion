@@ -7,6 +7,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Embeddable engine** — `create_app(config_resolver=...)` resolves an
+  `OpenFusionConfig` per request (the authenticated user's key + recipe), so the
+  proxy can be wrapped for multi-tenant/hosted use without forking. A static
+  config is now optional when a resolver is given. See `docs/EMBEDDING.md`.
 - **Side-by-side panel view** — the playground shows each model's answer in its own card as the
   panel finishes, above the fused result. Backed by an opt-in `panel_answer` SSE event (per-request
   `openfusion.expose_panel`; off for the plain API so intermediate answers aren't exposed).

@@ -44,6 +44,7 @@ mid-conversation tool turns (which pass through, since their results return thro
 1. **Synthesis strategies** — `strategy` selects how the panel is produced (`self_fusion`, `panel`, `debate`); `aggregator` selects how answers combine (`judge`, `vote`). Add a new strategy by extending `panel.expand_panel_members` / `gather_panel`, or a new aggregator alongside `synthesize`/`vote`.
 2. **Router gate** — `router.route()` runs before `gather_panel` in `server.py`. Today it is a heuristic; swap in an LLM classifier behind the same `RouteDecision` return type.
 3. **Eval harness** — `bench/` calls the same HTTP surface as production clients; no special internal APIs.
+4. **Embedding** — `create_app(config_resolver=...)` resolves config per request for multi-tenant/hosted wrappers; see [docs/EMBEDDING.md](EMBEDDING.md).
 
 ## Web UI
 

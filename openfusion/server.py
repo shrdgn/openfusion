@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -24,6 +24,7 @@ from starlette.background import BackgroundTask
 from openfusion.config import (
     _PRESETS,
     Aggregator,
+    LimitsConfig,
     OpenFusionConfig,
     PanelMember,
     PassThroughConfig,
@@ -147,8 +148,21 @@ def _record_request(route: str, outcome: str, started: float) -> None:
     )
 
 
-def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
-    app_config = config or load_config()
+# A host app can supply a per-request config (e.g. the authenticated user's key
+# and recipe) instead of one app-wide config — see docs/EMBEDDING.md.
+ConfigResolver = Callable[[Request], Awaitable[OpenFusionConfig]]
+
+
+def create_app(
+    config: OpenFusionConfig | None = None,
+    *,
+    config_resolver: ConfigResolver | None = None,
+) -> FastAPI:
+    # With a resolver, a static config is optional (the resolver provides one per
+    # request); otherwise fall back to loading from disk/zero-config.
+    app_config = config
+    if app_config is None and config_resolver is None:
+        app_config = load_config()
     upstream_client = UpstreamClient()
 
     @asynccontextmanager
@@ -158,8 +172,9 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
 
     app = FastAPI(title="openfusion", version="0.1.0", lifespan=lifespan)
     app.state.config = app_config
+    app.state.config_resolver = config_resolver
     app.state.upstream_client = upstream_client
-    app.state.limiter = RequestLimiter(app_config.limits)
+    app.state.limiter = RequestLimiter(app_config.limits if app_config else LimitsConfig())
     app.state.runtime_api_key = None
     app.mount(
         "/playground",
@@ -171,7 +186,12 @@ def create_app(config: OpenFusionConfig | None = None) -> FastAPI:
     async def _openfusion_error_handler(_: Request, exc: OpenFusionError) -> JSONResponse:
         return _error_response(exc)
 
-    def get_config() -> OpenFusionConfig:
+    async def get_config(request: Request) -> OpenFusionConfig:
+        resolver: ConfigResolver | None = app.state.config_resolver
+        if resolver is not None:
+            return await resolver(request)
+        if app.state.config is None:
+            raise UpstreamError("No configuration available")
         return app.state.config
 
     def get_client() -> UpstreamClient:

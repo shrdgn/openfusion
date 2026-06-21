@@ -10,11 +10,12 @@ Directional, not a promise. Issues and PRs welcome on any of these.
   (`router.route_models`), or fuse. See `examples/route.yaml.example`.
 - **Side-by-side panel view** — each model's answer shown in the playground next
   to the fused result (`openfusion.expose_panel` → `panel_answer` SSE events).
+- **Embeddable engine** — `create_app(config_resolver=...)` for per-request
+  (multi-tenant) config; see `docs/EMBEDDING.md`. Foundation for a hosted app.
 
 ## Next
-- **Embeddable engine** — expose the pipeline plus a per-request config resolver
-  and a usage/cost callback, so the proxy can be wrapped (auth, metering) without
-  forking. Foundation for a hosted version.
+- **Usage callback** — a `usage_callback` hook for per-request metering (usage is
+  already exposed via the SSE `usage` event / response `usage` field).
 - **Cost preview + response cache** — estimate spend before running; dedupe
   identical prompts.
 - **Smarter routing** — embedding/classifier-based model selection beyond the
