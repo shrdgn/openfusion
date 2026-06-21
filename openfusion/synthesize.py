@@ -73,7 +73,6 @@ def build_judge_messages(
     )
 
     judge_user_prompt = (
-        f"{JUDGE_SYSTEM_PROMPT}\n\n"
         f"Original user request:\n{original_user_text}\n\n"
         f"Panel answers:\n{panel_text}"
     )
