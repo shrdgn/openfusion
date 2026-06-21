@@ -31,6 +31,9 @@ class RequestLimiter:
         count, start = self._window.get(key, (0, now))
         if now - start >= 60.0:
             count, start = 0, now
+            # Prune all expired entries to prevent unbounded memory growth when
+            # many unique keys (e.g. rotating Bearer tokens) hit a long-lived server.
+            self._window = {k: v for k, v in self._window.items() if now - v[1] < 60.0}
         if count >= self._rpm:
             raise RateLimitError()
         self._window[key] = (count + 1, start)

@@ -27,6 +27,18 @@ def test_rate_unlimited_by_default() -> None:
         limiter.check_rate("key")
 
 
+def test_rate_window_prunes_stale_entries() -> None:
+    limiter = RequestLimiter(LimitsConfig(rate_limit_per_minute=100))
+    for i in range(50):
+        limiter.check_rate(f"key-{i}")
+    assert len(limiter._window) == 50
+    # Backdate all entries so they appear expired.
+    limiter._window = {k: (v[0], v[1] - 61.0) for k, v in limiter._window.items()}
+    # Re-checking an expired key triggers pruning of all other expired entries.
+    limiter.check_rate("key-0")
+    assert len(limiter._window) == 1
+
+
 def test_concurrency_cap_rejects_when_full() -> None:
     limiter = RequestLimiter(LimitsConfig(max_in_flight=1))
     first = limiter.acquire()
