@@ -272,6 +272,10 @@ class OpenFusionConfig(BaseModel):
     # Allow the upstream API key to be set at runtime from the playground UI.
     # On for the zero-config quick start; keep off for shared/hosted servers.
     allow_ui_api_key: bool = False
+    # Emit each panel member's answer as an SSE `panel_answer` event (the
+    # side-by-side view). Per-request via the `openfusion` override; off for the
+    # plain API so intermediate answers aren't exposed by default.
+    expose_panel: bool = False
 
     def resolved_pass_through(self) -> PassThroughConfig:
         if self.pass_through is not None:

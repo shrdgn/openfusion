@@ -249,11 +249,11 @@ async def gather_panel(
     client: UpstreamClient,
     *,
     cancel_event: asyncio.Event | None = None,
-    on_member: Callable[[str, str, bool], Awaitable[None]] | None = None,
+    on_member: Callable[[str, str, bool, str], Awaitable[None]] | None = None,
 ) -> PanelResult:
     """Fan out to all panel members concurrently with graceful degradation.
 
-    ``on_member(label, model, succeeded)`` is awaited as each member finishes, so
+    ``on_member(label, model, succeeded, content)`` is awaited as each member finishes, so
     callers can stream live progress.
     """
     members = expand_panel_members(config)
@@ -292,7 +292,9 @@ async def gather_panel(
         except Exception as exc:  # noqa: BLE001 - degrade per member
             outcome = MemberFailure(label=label, reason=str(exc))
         if on_member is not None:
-            await on_member(label, member.model, isinstance(outcome, MemberResponse))
+            ok = isinstance(outcome, MemberResponse)
+            content = outcome.content if isinstance(outcome, MemberResponse) else ""
+            await on_member(label, member.model, ok, content)
         return outcome
 
     tasks = [

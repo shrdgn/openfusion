@@ -7,6 +7,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Side-by-side panel view** — the playground shows each model's answer in its own card as the
+  panel finishes, above the fused result. Backed by an opt-in `panel_answer` SSE event (per-request
+  `openfusion.expose_panel`; off for the plain API so intermediate answers aren't exposed).
 - **Model routing** — when `router.route_models` is set, the single-model branch
   picks the best model for the prompt by difficulty (cheap for easy, frontier for
   hard). `mode: never` gives pure routing; `mode: heuristic` fuses hard prompts

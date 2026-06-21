@@ -31,6 +31,7 @@ import { Markdown } from "@/components/markdown";
 import {
   type ActiveConfig,
   getConfig,
+  type PanelAnswer,
   type ProgressEvent,
   setApiKey,
   streamFusion,
@@ -69,6 +70,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("");
   const [progress, setProgress] = useState<ProgressState | null>(null);
+  const [panelAnswers, setPanelAnswers] = useState<PanelAnswer[]>([]);
   const [answer, setAnswer] = useState("");
   const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
   const [usage, setUsage] = useState<any>(null);
@@ -132,6 +134,7 @@ export default function App() {
     setStatus("Sending…");
     setProgress(null);
     setAnswer("");
+    setPanelAnswers([]);
     answerRef.current = "";
     setAnalysis(null);
     setUsage(null);
@@ -147,11 +150,14 @@ export default function App() {
         judge,
         tools: { web_search: webSearch },
         max_tokens: maxTokens,
+        expose_panel: true,
       };
     }
 
     await streamFusion(payload, token.trim() || undefined, {
       onProgress: (e: ProgressEvent) => handleProgress(e),
+      onPanelAnswer: (a: PanelAnswer) =>
+        setPanelAnswers((prev) => [...prev.filter((p) => p.model !== a.model), a]),
       onContent: (text) => {
         answerRef.current += text;
         setAnswer(answerRef.current);
@@ -359,8 +365,14 @@ export default function App() {
                 {status}
               </div>
             )}
+            {panelAnswers.length > 0 && <PanelGrid answers={panelAnswers} />}
             <Card>
               <CardContent>
+                {answer && (
+                  <div className="mb-2 text-xs font-medium uppercase tracking-wide text-primary">
+                    Fused answer
+                  </div>
+                )}
                 {answer ? (
                   <div className="relative">
                     <CopyButton text={answer} />
@@ -555,6 +567,30 @@ function ProgressPanel({ progress }: { progress: ProgressState }) {
         </Step>
       </CardContent>
     </Card>
+  );
+}
+
+function PanelGrid({ answers }: { answers: PanelAnswer[] }) {
+  return (
+    <div>
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Panel · {answers.length} model{answers.length === 1 ? "" : "s"} answered
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {answers.map((a) => (
+          <Card key={a.model} className="overflow-hidden">
+            <CardContent className="p-3">
+              <div className="mb-2 truncate text-xs font-medium text-muted-foreground" title={a.model}>
+                {a.model}
+              </div>
+              <div className="max-h-64 overflow-auto text-sm">
+                <Markdown>{a.content}</Markdown>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }
 

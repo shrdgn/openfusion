@@ -54,8 +54,15 @@ export interface ProgressEvent {
   failed_count?: number;
 }
 
+export interface PanelAnswer {
+  model: string;
+  label: string;
+  content: string;
+}
+
 export interface StreamHandlers {
   onProgress?: (event: ProgressEvent) => void;
+  onPanelAnswer?: (answer: PanelAnswer) => void;
   onContent?: (text: string) => void;
   onAnalysis?: (analysis: Record<string, unknown>) => void;
   onUsage?: (usage: any) => void;
@@ -80,6 +87,8 @@ function flushBlock(block: string, h: StreamHandlers) {
   }
   if (event === "progress") {
     h.onProgress?.(data as ProgressEvent);
+  } else if (event === "panel_answer") {
+    h.onPanelAnswer?.(data as PanelAnswer);
   } else if (event === "analysis") {
     h.onAnalysis?.(data);
   } else if (event === "usage") {

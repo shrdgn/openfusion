@@ -54,8 +54,8 @@ async def gather_with_progress(
 
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
-    async def on_member(label: str, model: str, ok: bool) -> None:
-        await queue.put({"model": model, "label": label, "ok": ok})
+    async def on_member(label: str, model: str, ok: bool, content: str) -> None:
+        await queue.put({"model": model, "label": label, "ok": ok, "content": content})
 
     task = asyncio.create_task(
         gather_panel(request_body, config, client, cancel_event=cancel_event, on_member=on_member)
@@ -67,6 +67,13 @@ async def gather_with_progress(
         except TimeoutError:
             continue
         done += 1
+        if config.expose_panel and item["ok"]:
+            yield _sse_line(
+                "panel_answer",
+                json.dumps(
+                    {"model": item["model"], "label": item["label"], "content": item["content"]}
+                ),
+            )
         yield _progress(
             {
                 "stage": "panel_member",

@@ -238,7 +238,7 @@ async def _chat_turn(
         content: str | None = None
         with console.status("[dim]querying panel…[/dim]", spinner="dots") as status:
 
-            async def on_member(_label: str, _model: str, _ok: bool) -> None:
+            async def on_member(_label: str, _model: str, _ok: bool, _content: str) -> None:
                 done["n"] += 1
                 status.update(f"[dim]querying panel · {done['n']}/{total} answered[/dim]")
 
