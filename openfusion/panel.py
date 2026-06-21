@@ -15,7 +15,7 @@ from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.metrics import METRICS
 from openfusion.tools import apply_web_tools
-from openfusion.upstream import UpstreamClient
+from openfusion.upstream import UpstreamClient, extract_response_usage
 
 
 @dataclass
@@ -97,21 +97,6 @@ def _extract_content(payload: dict[str, Any]) -> str:
     return content if isinstance(content, str) else ""
 
 
-def _extract_usage(payload: dict[str, Any]) -> dict[str, float] | None:
-    usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        return None
-    result: dict[str, float] = {}
-    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
-        value = usage.get(key)
-        if isinstance(value, int) and not isinstance(value, bool):
-            result[key] = value
-    cost = usage.get("cost")
-    if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-        result["cost"] = float(cost)
-    return result or None
-
-
 async def _call_member(
     client: UpstreamClient,
     member: PanelMember,
@@ -168,7 +153,7 @@ async def _call_member(
                 label=member.label or member.model,
                 content=_extract_content(payload),
                 model=member.model,
-                usage=_extract_usage(payload),
+                usage=extract_response_usage(payload),
                 raw=payload,
             )
         except UpstreamError as exc:
