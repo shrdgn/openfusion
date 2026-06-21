@@ -31,6 +31,8 @@ def test_build_judge_messages_includes_panel_blocks() -> None:
     assert "unique insights" in messages[0]["content"]
     assert "### a" in messages[1]["content"]
     assert "second" in messages[1]["content"]
+    # System prompt must appear only in the system message, not duplicated in the user turn.
+    assert "You are the synthesizer" not in messages[1]["content"]
 
 
 def test_truncate_panel_responses() -> None:
