@@ -16,10 +16,12 @@ Directional, not a promise. Issues and PRs welcome on any of these.
   from memory; `create_app(usage_callback=...)` meters usage per request.
 - **Cost preview** — `POST /v1/estimate` (calls, tokens, and `$` from OpenRouter
   pricing); shown in the playground as you type.
+- **Classifier model routing** — `mode: model` + `route_models` lets one
+  classifier call pick FUSE or the specific model (`router.route_request`).
 
 ## Next
-- **Smarter routing** — embedding/classifier-based model selection beyond the
-  current heuristic; learn from outcomes.
+- **Routing that learns from outcomes** — record which model/recipe did well and
+  bias future routing (the classifier picker landed; this is the learning loop).
 - **Live `$` pricing in the estimate for non-OpenRouter providers** and a
   CLI cost preview (`openfusion ask --estimate`).
 

@@ -18,7 +18,14 @@ from openfusion.config import (
     Tier,
     TimeoutsConfig,
 )
-from openfusion.router import RouteDecision, prompt_tier, route, route_async, select_model
+from openfusion.router import (
+    RouteDecision,
+    prompt_tier,
+    route,
+    route_async,
+    route_request,
+    select_model,
+)
 from openfusion.server import _requires_pass_through_tools, create_app
 from openfusion.tools import WEB_FETCH_TYPE, WEB_SEARCH_TYPE
 from openfusion.upstream import UpstreamClient
@@ -243,3 +250,58 @@ async def test_router_routes_to_best_model_end_to_end(mock_router) -> None:
 
     assert easy.status_code == 200 and hard.status_code == 200
     assert seen == ["cheap/fast", "frontier/strong"]
+
+
+@pytest.mark.asyncio
+async def test_route_request_heuristic_picks_model(mock_router) -> None:
+    cfg = _routes()  # mode NEVER + fast/balanced/strong
+    cfg.mode = RouterMode.HEURISTIC
+    client = UpstreamClient()
+    decision, rm = await route_request(_body("hi"), cfg, client)
+    assert decision == RouteDecision.SOLO and rm.model == "cheap/fast"
+    decision, rm = await route_request(_body("analyze the trade-offs in depth"), cfg, client)
+    assert decision == RouteDecision.FUSE and rm is None
+    await client.aclose()
+
+
+def _model_routes() -> RouterConfig:
+    cfg = _routes()
+    cfg.mode = RouterMode.MODEL
+    cfg.classifier = PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="cls")
+    return cfg
+
+
+@pytest.mark.asyncio
+async def test_route_request_classifier_picks_model(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": "frontier/strong"}}]}
+        )
+    )
+    client = UpstreamClient()
+    decision, rm = await route_request(_body("anything"), _model_routes(), client)
+    assert decision == RouteDecision.SOLO and rm.model == "frontier/strong"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_request_classifier_says_fuse(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "FUSE"}}]})
+    )
+    client = UpstreamClient()
+    decision, rm = await route_request(_body("hard one"), _model_routes(), client)
+    assert decision == RouteDecision.FUSE and rm is None
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_request_classifier_error_falls_back(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "down"}})
+    )
+    client = UpstreamClient()
+    # Classifier fails -> heuristic; a short prompt routes SOLO to the fast model.
+    decision, rm = await route_request(_body("hi"), _model_routes(), client)
+    assert decision == RouteDecision.SOLO and rm.model == "cheap/fast"
+    await client.aclose()

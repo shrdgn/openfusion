@@ -155,3 +155,66 @@ async def route_async(
     if "FUSE" in upper:
         return RouteDecision.FUSE
     return route(body, config)
+
+
+def _select_prompt(route_models: list[RouteModel]) -> str:
+    options = "\n".join(f"- {rm.model} ({rm.tier.value})" for rm in route_models)
+    return (
+        "Choose how to answer the user's request. Reply with EITHER the single word FUSE "
+        "(to use a full panel of models for a hard/open-ended request), OR the exact id of "
+        "the cheapest single model below that can handle it well. Models (fast=cheap, "
+        "strong=most capable):\n"
+        f"{options}\n\nReply with just FUSE or one model id."
+    )
+
+
+async def _classify_route(
+    body: dict[str, Any], config: RouterConfig, client: UpstreamClient
+) -> tuple[RouteDecision, RouteModel | None] | None:
+    """One classifier call that returns FUSE or a chosen model. None on failure."""
+    classifier = config.classifier.model_copy(update={"label": "router"})  # type: ignore[union-attr]
+    request = {
+        "messages": [
+            {"role": "system", "content": _select_prompt(config.route_models)},
+            {"role": "user", "content": _user_text(body)[:4000]},
+        ],
+        "max_tokens": 24,
+        "temperature": 0,
+    }
+    try:
+        payload = await client.chat_completion(
+            classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
+        )
+    except Exception:  # noqa: BLE001 - never fail routing on a classifier error
+        return None
+    if not isinstance(payload, dict):
+        return None
+    choices = payload.get("choices") or []
+    text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
+    if "FUSE" in text.upper():
+        return RouteDecision.FUSE, None
+    lowered = text.lower()
+    for candidate in config.route_models:
+        if candidate.model.lower() in lowered:
+            return RouteDecision.SOLO, candidate
+    return None
+
+
+async def route_request(
+    body: dict[str, Any], config: RouterConfig, client: UpstreamClient
+) -> tuple[RouteDecision, RouteModel | None]:
+    """Decide fuse-vs-solo AND, for solo, which model — the single routing entry point.
+
+    With ``mode: model`` and ``route_models`` set, one classifier call picks FUSE or a
+    specific model. Otherwise the heuristic decides and ``select_model`` picks the model.
+    Always falls back to the heuristic on any classifier error.
+    """
+    if config.mode == RouterMode.MODEL and config.classifier is not None and config.route_models:
+        result = await _classify_route(body, config, client)
+        if result is not None:
+            return result
+
+    decision = await route_async(body, config, client)
+    if decision == RouteDecision.SOLO:
+        return RouteDecision.SOLO, select_model(body, config)
+    return RouteDecision.FUSE, None

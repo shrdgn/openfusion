@@ -7,6 +7,9 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Classifier model routing** — with `router.mode: model` + `route_models`, one classifier call
+  picks FUSE *or the specific model* for the prompt (a single decision instead of two), falling back
+  to the difficulty heuristic on any error. Unified entry point `router.route_request`.
 - **Cost preview** — `POST /v1/estimate` returns the number of calls, input-token estimate, output
   cap, and a `$` figure (from cached OpenRouter per-model pricing; best-effort, falls back to tokens).
   The playground shows `≈ N calls · ~$X` next to the Fuse button as you type.

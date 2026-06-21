@@ -46,7 +46,7 @@ from openfusion.metrics import METRICS
 from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
 from openfusion.pricing import get_prices
 from openfusion.responsecache import ResponseCache, cache_key
-from openfusion.router import RouteDecision, route_async, select_model
+from openfusion.router import RouteDecision, route_request
 from openfusion.stream import (
     buffer_ranked,
     buffer_synthesis,
@@ -348,10 +348,10 @@ def create_app(
             )
             routed: PassThroughConfig | None = None
             if wants_fusion and cfg.router.enabled:
-                decision = await route_async(body, cfg.router, client)
+                decision, route_model = await route_request(body, cfg.router, client)
                 if decision == RouteDecision.SOLO:
                     wants_fusion = False
-                    routed = _routed_pass_through(cfg, select_model(body, cfg.router))
+                    routed = _routed_pass_through(cfg, route_model)
 
             acquired = limiter.acquire()
 

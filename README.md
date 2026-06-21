@@ -126,7 +126,9 @@ Three knobs control *whether* and *how* a prompt is fused. All are optional and 
 
   Add `route_models` to also **route to the best single model** by difficulty — cheap for easy
   prompts, frontier for hard ones (set `mode: never` for pure routing with no fusion, like
-  RouteLLM/OpenRouter Auto; `mode: heuristic` to fuse the hard ones and route the rest). See
+  RouteLLM/OpenRouter Auto; `mode: heuristic` to fuse the hard ones and route the rest). With
+  `mode: model` + `route_models`, a single classifier call picks **FUSE or the specific model**
+  (falling back to the difficulty heuristic on any error). See
   [`examples/route.yaml.example`](examples/route.yaml.example):
 
   ```yaml
