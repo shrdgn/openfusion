@@ -6,7 +6,7 @@ import asyncio
 import json
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from openfusion.config import OpenFusionConfig
@@ -25,6 +25,102 @@ def _sse_line(event: str | None, data: str) -> str:
 
 def _progress(payload: dict[str, Any]) -> str:
     return _sse_line("progress", json.dumps(payload))
+
+
+async def capture_stream(
+    lines: AsyncIterator[str],
+    on_complete: Callable[[str, dict[str, Any] | None], Awaitable[None]],
+) -> AsyncIterator[str]:
+    """Pass SSE lines through while accumulating the answer text and final usage.
+
+    Calls ``on_complete(content, usage)`` once the stream ends cleanly (used for
+    response caching and usage metering). Skipped if an error chunk was seen.
+    """
+    parts: list[str] = []
+    usage: dict[str, Any] | None = None
+    errored = False
+    async for line in lines:
+        event: str | None = None
+        data: str | None = None
+        for raw in line.split("\n"):
+            if raw.startswith("event:"):
+                event = raw[6:].strip()
+            elif raw.startswith("data:"):
+                data = raw[5:].strip()
+        if data and data != "[DONE]":
+            try:
+                obj = json.loads(data)
+            except json.JSONDecodeError:
+                obj = None
+            if isinstance(obj, dict):
+                if event == "usage":
+                    usage = obj.get("total") or obj
+                elif "error" in obj:
+                    errored = True
+                else:
+                    delta = (obj.get("choices") or [{}])[0].get("delta") or {}
+                    text = delta.get("content")
+                    if isinstance(text, str):
+                        parts.append(text)
+        yield line
+    if not errored:
+        await on_complete("".join(parts), usage)
+
+
+def replay_cached_stream(
+    content: str, usage: dict[str, Any] | None, model: str
+) -> AsyncIterator[str]:
+    """Serve a cached answer as an SSE stream (a single content chunk)."""
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+
+    async def gen() -> AsyncIterator[str]:
+        yield _sse_line(
+            None,
+            json.dumps(
+                _chunk(
+                    chunk_id=chunk_id,
+                    created=created,
+                    model=model,
+                    delta={"role": "assistant", "content": content},
+                    finish_reason=None,
+                )
+            ),
+        )
+        yield _sse_line(
+            None,
+            json.dumps(
+                _chunk(
+                    chunk_id=chunk_id, created=created, model=model, delta={}, finish_reason="stop"
+                )
+            ),
+        )
+        if usage:
+            yield _sse_line("usage", json.dumps({"total": usage, "cached": True}))
+        yield _sse_line(None, "[DONE]")
+
+    return gen()
+
+
+def cached_response_dict(content: str, usage: dict[str, Any] | None, model: str) -> dict[str, Any]:
+    """Build a non-streaming chat completion from a cached answer."""
+    response: dict[str, Any] = {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+        "cached": True,
+    }
+    if usage:
+        response["usage"] = usage
+    return response
 
 
 async def gather_with_progress(

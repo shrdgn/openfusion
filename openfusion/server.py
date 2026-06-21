@@ -28,6 +28,7 @@ from openfusion.config import (
     OpenFusionConfig,
     PanelMember,
     PassThroughConfig,
+    ResponseCacheConfig,
     RouteModel,
     load_config,
 )
@@ -41,12 +42,16 @@ from openfusion.errors import (
 from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
 from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
+from openfusion.responsecache import ResponseCache, cache_key
 from openfusion.router import RouteDecision, route_async, select_model
 from openfusion.stream import (
     buffer_ranked,
     buffer_synthesis,
     buffer_vote,
+    cached_response_dict,
+    capture_stream,
     ranked_and_stream,
+    replay_cached_stream,
     synthesize_and_stream,
     vote_and_stream,
 )
@@ -151,12 +156,15 @@ def _record_request(route: str, outcome: str, started: float) -> None:
 # A host app can supply a per-request config (e.g. the authenticated user's key
 # and recipe) instead of one app-wide config — see docs/EMBEDDING.md.
 ConfigResolver = Callable[[Request], Awaitable[OpenFusionConfig]]
+# Called after a fused request with its usage/cost, for metering.
+UsageCallback = Callable[[Request, "dict[str, Any] | None"], Awaitable[None]]
 
 
 def create_app(
     config: OpenFusionConfig | None = None,
     *,
     config_resolver: ConfigResolver | None = None,
+    usage_callback: UsageCallback | None = None,
 ) -> FastAPI:
     # With a resolver, a static config is optional (the resolver provides one per
     # request); otherwise fall back to loading from disk/zero-config.
@@ -173,8 +181,11 @@ def create_app(
     app = FastAPI(title="openfusion", version="0.1.0", lifespan=lifespan)
     app.state.config = app_config
     app.state.config_resolver = config_resolver
+    app.state.usage_callback = usage_callback
     app.state.upstream_client = upstream_client
     app.state.limiter = RequestLimiter(app_config.limits if app_config else LimitsConfig())
+    rc = app_config.response_cache if app_config else ResponseCacheConfig()
+    app.state.response_cache = ResponseCache(rc.ttl_seconds, rc.max_entries)
     app.state.runtime_api_key = None
     app.mount(
         "/playground",
@@ -343,8 +354,37 @@ def create_app(
                     raise InvalidRequestError("Judge must be configured for judge aggregation")
                 policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
 
+            cache = app.state.response_cache
+            cache_k = cache_key(body, cfg) if cfg.response_cache.enabled else None
+
+            async def fire_usage(usage: dict[str, Any] | None) -> None:
+                cb = app.state.usage_callback
+                if cb is not None:
+                    with contextlib.suppress(Exception):
+                        await cb(request, usage)
+
+            async def on_complete(content: str, usage: dict[str, Any] | None) -> None:
+                if cache_k is not None:
+                    cache.put(cache_k, {"content": content, "usage": usage})
+                await fire_usage(usage)
+
+            if cache_k is not None and (hit := cache.get(cache_k)) is not None:
+                _record_request(route_label, "success", started)
+                await fire_usage(hit.get("usage"))
+                model_name = cfg.fusion_model_name
+                if stream:
+                    cached = StreamingResponse(
+                        replay_cached_stream(hit["content"], hit.get("usage"), model_name),
+                        media_type="text/event-stream",
+                    )
+                    return _attach_release(cached, limiter, acquired)
+                payload = cached_response_dict(hit["content"], hit.get("usage"), model_name)
+                return _attach_release(JSONResponse(content=payload), limiter, acquired)
+
             if stream:
-                response = await _fusion_stream(request, body, cfg, client, started=started)
+                response = await _fusion_stream(
+                    request, body, cfg, client, started=started, on_complete=on_complete
+                )
                 return _attach_release(response, limiter, acquired)
             if cfg.aggregator == Aggregator.VOTE:
                 payload = await buffer_vote(body, cfg, client)
@@ -352,6 +392,10 @@ def create_app(
                 payload = await buffer_ranked(body, cfg, client)
             else:
                 payload = await buffer_synthesis(body, cfg, client)
+            await on_complete(
+                (payload.get("choices") or [{}])[0].get("message", {}).get("content") or "",
+                payload.get("usage"),
+            )
             _record_request(route_label, "success", started)
             return _attach_release(JSONResponse(content=payload), limiter, acquired)
         except OpenFusionError as exc:
@@ -446,6 +490,7 @@ async def _fusion_stream(
     client: UpstreamClient,
     *,
     started: float,
+    on_complete: Callable[[str, dict[str, Any] | None], Awaitable[None]] | None = None,
 ) -> StreamingResponse:
     cancel_event = asyncio.Event()
 
@@ -479,7 +524,10 @@ async def _fusion_stream(
                 await task
             _record_request("fusion", outcome, started)
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    lines = event_stream()
+    if on_complete is not None:
+        lines = capture_stream(lines, on_complete)
+    return StreamingResponse(lines, media_type="text/event-stream")
 
 
 async def _watch_disconnect(request: Request, cancel_event: asyncio.Event) -> None:

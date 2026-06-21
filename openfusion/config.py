@@ -192,6 +192,19 @@ class CacheConfig(BaseModel):
     enabled: bool = False
 
 
+class ResponseCacheConfig(BaseModel):
+    """In-process cache of fused answers, keyed by prompt + recipe.
+
+    When enabled, an identical request (same messages, panel, judge, aggregator,
+    tools, and token cap) is served from memory — instant and free — until it
+    expires. Off by default.
+    """
+
+    enabled: bool = False
+    ttl_seconds: int = Field(default=300, ge=1)
+    max_entries: int = Field(default=512, ge=1)
+
+
 class AnalysisConfig(BaseModel):
     """Expose the judge's structured analysis as a separate SSE ``analysis`` event."""
 
@@ -258,6 +271,7 @@ class OpenFusionConfig(BaseModel):
     router: RouterConfig = Field(default_factory=RouterConfig)
     limits: LimitsConfig = Field(default_factory=LimitsConfig)
     cache: CacheConfig = Field(default_factory=CacheConfig)
+    response_cache: ResponseCacheConfig = Field(default_factory=ResponseCacheConfig)
     analysis: AnalysisConfig = Field(default_factory=AnalysisConfig)
     timeouts: TimeoutsConfig = Field(default_factory=TimeoutsConfig)
     gateway: GatewayAuthConfig = Field(default_factory=GatewayAuthConfig)

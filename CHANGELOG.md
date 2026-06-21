@@ -7,6 +7,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Response cache** (`response_cache.enabled`) — identical fused requests (same prompt + recipe)
+  are served instantly from an in-process TTL/LRU cache; cached responses are flagged `cached: true`
+  and work for both streaming and non-streaming.
+- **Usage callback** — `create_app(usage_callback=...)` fires per fused request with its usage/cost,
+  for hosted metering (works for streaming via stream capture and non-streaming).
+
 - **Embeddable engine** — `create_app(config_resolver=...)` resolves an
   `OpenFusionConfig` per request (the authenticated user's key + recipe), so the
   proxy can be wrapped for multi-tenant/hosted use without forking. A static

@@ -12,10 +12,12 @@ Directional, not a promise. Issues and PRs welcome on any of these.
   to the fused result (`openfusion.expose_panel` → `panel_answer` SSE events).
 - **Embeddable engine** — `create_app(config_resolver=...)` for per-request
   (multi-tenant) config; see `docs/EMBEDDING.md`. Foundation for a hosted app.
+- **Response cache** (`response_cache.enabled`) — identical fused requests served
+  from memory; `create_app(usage_callback=...)` meters usage per request.
 
 ## Next
-- **Usage callback** — a `usage_callback` hook for per-request metering (usage is
-  already exposed via the SSE `usage` event / response `usage` field).
+- **Cost preview** — estimate spend before running (token estimate now; live
+  per-model pricing later).
 - **Cost preview + response cache** — estimate spend before running; dedupe
   identical prompts.
 - **Smarter routing** — embedding/classifier-based model selection beyond the

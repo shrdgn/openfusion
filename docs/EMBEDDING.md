@@ -39,12 +39,26 @@ host.add_middleware(YourAuthMiddleware)
 host.mount("/", create_app(config_resolver=resolve_config))
 ```
 
-## Usage & cost
+## Usage & cost (metering)
 
-Per-request usage and cost are already exposed: the streaming response emits an
-`event: usage` SSE payload, and non-streaming responses include a `usage` field
-(summed across the panel and judge). A host can meter from those today. A
-dedicated `usage_callback` hook is on the roadmap.
+Pass a `usage_callback` to meter every fused request (streaming and non-streaming):
+
+```python
+async def meter(request, usage):       # usage: {prompt_tokens, completion_tokens, total_tokens, cost}
+    await record_for_user(request, usage)
+
+app = create_app(config_resolver=resolve_config, usage_callback=meter)
+```
+
+Usage is also exposed on the wire: streaming responses emit an `event: usage`
+payload and non-streaming responses include a `usage` field (summed across the
+panel and judge).
+
+## Response cache
+
+Set `response_cache.enabled` in the config to serve identical requests (same
+prompt + recipe) from an in-process TTL/LRU cache — instant and free until they
+expire. Cached responses are flagged `cached: true`.
 
 ## Programmatic use (no HTTP)
 
