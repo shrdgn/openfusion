@@ -55,6 +55,24 @@ def test_cache_key_depends_on_prompt_and_recipe() -> None:
     assert cache_key(body1, cfg) != cache_key(body2, cfg)
 
 
+def test_cache_key_differs_on_sampling_params() -> None:
+    cfg = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="k", model="j"),
+    )
+    base = {"messages": [{"role": "user", "content": "hi"}]}
+    assert cache_key(base, cfg) != cache_key({**base, "temperature": 1.0}, cfg)
+    assert cache_key(base, cfg) != cache_key({**base, "top_p": 0.9}, cfg)
+    assert cache_key(base, cfg) != cache_key({**base, "seed": 42}, cfg)
+    assert cache_key(base, cfg) != cache_key({**base, "n": 2}, cfg)
+    assert cache_key(base, cfg) != cache_key({**base, "presence_penalty": 0.5}, cfg)
+    assert cache_key(base, cfg) != cache_key({**base, "frequency_penalty": 0.5}, cfg)
+    # Same sampling params → same key.
+    assert cache_key({**base, "temperature": 0.7}, cfg) == cache_key(
+        {**base, "temperature": 0.7}, cfg
+    )
+
+
 @pytest.mark.asyncio
 async def test_identical_request_served_from_cache(mock_router) -> None:
     calls = {"n": 0}
