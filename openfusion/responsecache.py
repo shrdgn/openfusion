@@ -21,6 +21,14 @@ def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
         "judge": config.judge.model if config.judge else None,
         "tools": [config.tools.web_search, config.tools.web_fetch],
         "max_tokens": body.get("max_tokens") or config.cost_controls.judge_max_tokens,
+        # Sampling parameters affect the response; omitting them would serve a
+        # cached answer from a run with different generation settings.
+        "temperature": body.get("temperature"),
+        "top_p": body.get("top_p"),
+        "seed": body.get("seed"),
+        "n": body.get("n"),
+        "presence_penalty": body.get("presence_penalty"),
+        "frequency_penalty": body.get("frequency_penalty"),
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
