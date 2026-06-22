@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hmac
 import json
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -140,7 +141,14 @@ def _validate_gateway_auth(
     if not authorization or not authorization.startswith("Bearer "):
         raise AuthenticationError()
     token = authorization.removeprefix("Bearer ").strip()
-    if token not in config.gateway.api_keys:
+    # Compare against every key without short-circuiting so the response time
+    # doesn't reveal which positions in the list are occupied by valid keys.
+    token_b = token.encode()
+    valid = False
+    for key in config.gateway.api_keys:
+        if hmac.compare_digest(token_b, key.encode()):
+            valid = True
+    if not valid:
         raise AuthenticationError()
 
 
