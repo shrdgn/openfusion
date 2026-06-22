@@ -7,8 +7,16 @@ import json
 import httpx
 import pytest
 
-from openfusion.config import JudgeConfig, OpenFusionConfig, PanelMember, SelfFusionConfig, Strategy
-from openfusion.stream import synthesize_and_stream
+from openfusion.config import (
+    Aggregator,
+    JudgeConfig,
+    OpenFusionConfig,
+    PanelMember,
+    SelfFusionConfig,
+    Strategy,
+    TimeoutsConfig,
+)
+from openfusion.stream import ranked_and_stream, synthesize_and_stream, vote_and_stream
 from openfusion.upstream import UpstreamClient
 
 
@@ -131,3 +139,64 @@ async def test_stream_emits_panel_answers_when_exposed(mock_router) -> None:
     # The fused answer still streams as normal content.
     assert any("fused" in data for event, data in events if event is None)
     await client.aclose()
+
+
+def _panel_config(aggregator: Aggregator) -> OpenFusionConfig:
+    return OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        aggregator=aggregator,
+        panel=[
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1"),
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m2"),
+        ],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="judge"),
+        timeouts=TimeoutsConfig(member_seconds=5, judge_seconds=5, total_seconds=15),
+    )
+
+
+@pytest.mark.asyncio
+async def test_vote_and_stream_sends_error_chunk_on_panel_failure(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "upstream down"}})
+    )
+    config = _panel_config(Aggregator.VOTE)
+    client = UpstreamClient()
+    chunks = [line async for line in vote_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    # Stream must end with [DONE] even on panel failure.
+    assert events[-1][1] == "[DONE]"
+    # There must be an error data chunk before [DONE].
+    error_events = [
+        json.loads(data)
+        for event, data in events
+        if event is None and data != "[DONE]"
+        if "error" in json.loads(data)
+    ]
+    assert error_events, "expected an SSE error chunk"
+
+
+@pytest.mark.asyncio
+async def test_ranked_and_stream_sends_error_chunk_on_panel_failure(mock_router) -> None:
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "upstream down"}})
+    )
+    config = _panel_config(Aggregator.RANKED)
+    client = UpstreamClient()
+    chunks = [line async for line in ranked_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    assert events[-1][1] == "[DONE]"
+    error_events = [
+        json.loads(data)
+        for event, data in events
+        if event is None and data != "[DONE]"
+        if "error" in json.loads(data)
+    ]
+    assert error_events, "expected an SSE error chunk"

@@ -419,13 +419,23 @@ async def vote_and_stream(
     model = config.fusion_model_name
 
     panel: PanelResult | None = None
-    async for item in gather_with_progress(
-        request_body, config, client, cancel_event=cancel_event
-    ):
-        if isinstance(item, PanelResult):
-            panel = item
-        else:
-            yield item
+    try:
+        async for item in gather_with_progress(
+            request_body, config, client, cancel_event=cancel_event
+        ):
+            if isinstance(item, PanelResult):
+                panel = item
+            else:
+                yield item
+    except Exception as exc:  # noqa: BLE001 - panel failed; report and end the stream
+        yield _sse_line(
+            None,
+            json.dumps(
+                {"error": {"message": str(exc), "type": "upstream_error", "code": "panel_error"}}
+            ),
+        )
+        yield _sse_line(None, "[DONE]")
+        return
     assert panel is not None
     content, vote_meta = majority_vote(panel)
 
@@ -560,13 +570,23 @@ async def ranked_and_stream(
     model = config.fusion_model_name
 
     panel: PanelResult | None = None
-    async for item in gather_with_progress(
-        request_body, config, client, cancel_event=cancel_event
-    ):
-        if isinstance(item, PanelResult):
-            panel = item
-        else:
-            yield item
+    try:
+        async for item in gather_with_progress(
+            request_body, config, client, cancel_event=cancel_event
+        ):
+            if isinstance(item, PanelResult):
+                panel = item
+            else:
+                yield item
+    except Exception as exc:  # noqa: BLE001 - panel failed; report and end the stream
+        yield _sse_line(
+            None,
+            json.dumps(
+                {"error": {"message": str(exc), "type": "upstream_error", "code": "panel_error"}}
+            ),
+        )
+        yield _sse_line(None, "[DONE]")
+        return
     assert panel is not None
     content, meta = await pick_best(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
