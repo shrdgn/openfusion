@@ -16,7 +16,7 @@ jobs:
       # Publishing only happens once a PyPI token is configured as a repo secret.
       HAS_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN != '' }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v6
