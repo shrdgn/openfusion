@@ -16,7 +16,7 @@ from openfusion.config import (
     Strategy,
     TimeoutsConfig,
 )
-from openfusion.stream import ranked_and_stream, synthesize_and_stream, vote_and_stream
+from openfusion.stream import capture_stream, ranked_and_stream, synthesize_and_stream, vote_and_stream
 from openfusion.upstream import UpstreamClient
 
 
@@ -176,7 +176,7 @@ async def test_vote_and_stream_sends_error_chunk_on_panel_failure(mock_router) -
         if event is None and data != "[DONE]"
         if "error" in json.loads(data)
     ]
-    assert error_events, "expected an SSE error chunk"
+    assert error_events, "expected an SSE error chunk (vote)"
 
 
 @pytest.mark.asyncio
@@ -199,7 +199,7 @@ async def test_ranked_and_stream_sends_error_chunk_on_panel_failure(mock_router)
         if event is None and data != "[DONE]"
         if "error" in json.loads(data)
     ]
-    assert error_events, "expected an SSE error chunk"
+    assert error_events, "expected an SSE error chunk (ranked)"
 
 
 @pytest.mark.asyncio
@@ -248,3 +248,58 @@ async def test_vote_and_stream_usage_event_includes_total(mock_router) -> None:
     assert total["prompt_tokens"] == 20
     assert total["completion_tokens"] == 10
     assert total["total_tokens"] == 30
+
+
+@pytest.mark.asyncio
+async def test_capture_stream_skips_on_complete_on_error_chunk() -> None:
+    """capture_stream must NOT call on_complete when the stream contains an error chunk.
+
+    The response cache relies on this: a partial or errored answer must never be
+    cached as a valid response for future requests.
+    """
+    completed: list[tuple[str, object]] = []
+
+    async def on_complete(content: str, usage: object) -> None:
+        completed.append((content, usage))
+
+    error_sse = (
+        'data: {"error": {"message": "upstream down", "type": "upstream_error"}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    async def _source():
+        for block in error_sse.split("\n\n"):
+            if block.strip():
+                yield block + "\n\n"
+
+    lines = [line async for line in capture_stream(_source(), on_complete)]
+    assert any("[DONE]" in line for line in lines)
+    assert completed == [], "on_complete should not fire when the stream contains an error"
+
+
+@pytest.mark.asyncio
+async def test_capture_stream_calls_on_complete_on_clean_stream() -> None:
+    """capture_stream accumulates content and fires on_complete after a clean stream."""
+    completed: list[tuple[str, object]] = []
+
+    async def on_complete(content: str, usage: object) -> None:
+        completed.append((content, usage))
+
+    usage_obj = {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    clean_sse = (
+        'data: {"choices":[{"delta":{"role":"assistant","content":"Hello "}}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"world"}}]}\n\n'
+        f'event: usage\ndata: {json.dumps({"total": usage_obj})}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    async def _source():
+        for block in clean_sse.split("\n\n"):
+            if block.strip():
+                yield block + "\n\n"
+
+    _ = [line async for line in capture_stream(_source(), on_complete)]
+    assert len(completed) == 1
+    content, usage = completed[0]
+    assert content == "Hello world"
+    assert usage == usage_obj

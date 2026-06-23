@@ -240,8 +240,11 @@ def create_app(
 
     @app.post("/v1/estimate")
     async def estimate(
-        request: Request, cfg: OpenFusionConfig = Depends(get_config)
+        request: Request,
+        cfg: OpenFusionConfig = Depends(get_config),
+        authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
+        _validate_gateway_auth(cfg, authorization)
         try:
             body = await request.json()
         except json.JSONDecodeError as exc:
@@ -257,8 +260,11 @@ def create_app(
 
     @app.post("/v1/runtime/api-key")
     async def set_runtime_api_key(
-        request: Request, cfg: OpenFusionConfig = Depends(get_config)
+        request: Request,
+        cfg: OpenFusionConfig = Depends(get_config),
+        authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
+        _validate_gateway_auth(cfg, authorization)
         if not cfg.allow_ui_api_key:
             raise OpenFusionError(
                 "Setting the API key from the UI is disabled on this server",
