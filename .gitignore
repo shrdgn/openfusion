@@ -16,6 +16,9 @@ env/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 bench/results/
 bench/.cache/
 
