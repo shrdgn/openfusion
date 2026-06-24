@@ -29,6 +29,11 @@ def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
         "n": body.get("n"),
         "presence_penalty": body.get("presence_penalty"),
         "frequency_penalty": body.get("frequency_penalty"),
+        # stop sequences, logit bias, and response format change the generated output;
+        # omitting them would serve a cached answer from a run with different constraints.
+        "stop": body.get("stop"),
+        "logit_bias": body.get("logit_bias"),
+        "response_format": body.get("response_format"),
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()

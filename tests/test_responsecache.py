@@ -73,6 +73,21 @@ def test_cache_key_differs_on_sampling_params() -> None:
     )
 
 
+def test_cache_key_differs_on_output_params() -> None:
+    cfg = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="k", model="j"),
+    )
+    base = {"messages": [{"role": "user", "content": "hi"}]}
+    assert cache_key(base, cfg) != cache_key({**base, "stop": ["END"]}, cfg)
+    assert cache_key(base, cfg) != cache_key({**base, "logit_bias": {"50256": -100}}, cfg)
+    assert cache_key(base, cfg) != cache_key(
+        {**base, "response_format": {"type": "json_object"}}, cfg
+    )
+    # Same output params → same key.
+    assert cache_key({**base, "stop": ["END"]}, cfg) == cache_key({**base, "stop": ["END"]}, cfg)
+
+
 @pytest.mark.asyncio
 async def test_identical_request_served_from_cache(mock_router) -> None:
     calls = {"n": 0}
