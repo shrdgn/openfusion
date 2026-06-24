@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from openfusion.config import OpenFusionConfig
+from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult, expand_panel_members, gather_panel
 from openfusion.ranked import pick_best
 from openfusion.synthesize import ANALYSIS_SENTINEL, synthesize
@@ -284,7 +285,8 @@ async def synthesize_and_stream(
         )
         yield _sse_line(None, "[DONE]")
         return
-    assert panel is not None
+    if panel is None:
+        raise UpstreamError("Panel gather completed without a result")
 
     yield _progress(
         {
@@ -436,7 +438,8 @@ async def vote_and_stream(
         )
         yield _sse_line(None, "[DONE]")
         return
-    assert panel is not None
+    if panel is None:
+        raise UpstreamError("Panel gather completed without a result")
     content, vote_meta = majority_vote(panel)
 
     yield _sse_line(
@@ -587,7 +590,8 @@ async def ranked_and_stream(
         )
         yield _sse_line(None, "[DONE]")
         return
-    assert panel is not None
+    if panel is None:
+        raise UpstreamError("Panel gather completed without a result")
     content, meta = await pick_best(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
     )
