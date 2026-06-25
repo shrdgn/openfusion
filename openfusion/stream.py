@@ -478,6 +478,32 @@ async def vote_and_stream(
     yield _sse_line(None, "[DONE]")
 
 
+def _make_completion_response(
+    content: str,
+    model: str,
+    *,
+    finish_reason: str = "stop",
+    usage: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a non-streaming chat.completion dict (shared by all buffer functions)."""
+    response: dict[str, Any] = {
+        "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+    if usage:
+        response["usage"] = usage
+    return response
+
+
 async def buffer_vote(
     request_body: dict[str, Any],
     config: OpenFusionConfig,
@@ -486,24 +512,7 @@ async def buffer_vote(
     """Non-streaming majority vote over the panel."""
     panel = await gather_panel(request_body, config, client)
     content, _ = majority_vote(panel)
-
-    response: dict[str, Any] = {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": config.fusion_model_name,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
-    }
-    panel_usage = panel.usage_total
-    if panel_usage:
-        response["usage"] = panel_usage
-    return response
+    return _make_completion_response(content, config.fusion_model_name, usage=panel.usage_total)
 
 
 async def buffer_synthesis(
@@ -535,25 +544,16 @@ async def buffer_synthesis(
         content_parts.append(splitter.flush())
 
     usage_payload = _build_usage_payload(panel, judge_usage)
-    response: dict[str, Any] = {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": config.fusion_model_name,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": "".join(content_parts)},
-                "finish_reason": finish_reason,
-            }
-        ],
-    }
+    response = _make_completion_response(
+        "".join(content_parts),
+        config.fusion_model_name,
+        finish_reason=finish_reason,
+        usage=usage_payload.get("total") if usage_payload else None,
+    )
     if splitter:
         analysis = splitter.analysis_payload()
         if analysis:
             response["analysis"] = analysis
-    if usage_payload and usage_payload.get("total"):
-        response["usage"] = usage_payload["total"]
     return response
 
 
@@ -637,20 +637,4 @@ async def buffer_ranked(
     content, _ = await pick_best(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
     )
-    response: dict[str, Any] = {
-        "id": f"chatcmpl-{uuid.uuid4().hex[:24]}",
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": config.fusion_model_name,
-        "choices": [
-            {
-                "index": 0,
-                "message": {"role": "assistant", "content": content},
-                "finish_reason": "stop",
-            }
-        ],
-    }
-    panel_usage = panel.usage_total
-    if panel_usage:
-        response["usage"] = panel_usage
-    return response
+    return _make_completion_response(content, config.fusion_model_name, usage=panel.usage_total)
