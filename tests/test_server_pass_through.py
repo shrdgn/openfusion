@@ -177,6 +177,39 @@ async def test_rejects_invalid_max_tokens(
     assert not route.called
 
 
+async def test_rejects_missing_messages(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/v1/chat/completions",
+        json={"model": "openfusion"},
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["type"] == "invalid_request_error"
+    assert "messages" in data["error"]["message"]
+
+
+async def test_rejects_empty_messages(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/v1/chat/completions",
+        json={"model": "openfusion", "messages": []},
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["type"] == "invalid_request_error"
+    assert "messages" in data["error"]["message"]
+
+
+async def test_rejects_non_list_messages(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/v1/chat/completions",
+        json={"model": "openfusion", "messages": "hello"},
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["type"] == "invalid_request_error"
+    assert "messages" in data["error"]["message"]
+
+
 async def test_openfusion_rejects_judge_over_limit(
     test_config: OpenFusionConfig,
     mock_router,

@@ -329,6 +329,10 @@ def create_app(
             if not isinstance(model, str) or not model:
                 raise InvalidRequestError("model is required")
 
+            messages = body.get("messages")
+            if not isinstance(messages, list) or not messages:
+                raise InvalidRequestError("messages is required and must be a non-empty array")
+
             override = body.pop("openfusion", None)
             if override is not None:
                 if not isinstance(override, dict):
