@@ -283,7 +283,11 @@ def create_app(
         return {"ok": True, "api_key_set": bool(key)}
 
     @app.get("/v1/models")
-    async def list_models(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
+    async def list_models(
+        cfg: OpenFusionConfig = Depends(get_config),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _validate_gateway_auth(cfg, authorization)
         models = [
             {
                 "id": cfg.fusion_model_name,

@@ -44,3 +44,20 @@ def test_truncate_panel_responses() -> None:
     ]
     capped = _truncate_panel_responses(responses, max_tokens=100)
     assert any("truncated" in content for _, content in capped)
+
+
+def test_truncate_panel_responses_all_short_breaks_gracefully() -> None:
+    """When every response is already ≤200 chars, no further truncation is possible.
+
+    The function must return the responses unchanged rather than looping forever or
+    dropping entries — callers must tolerate a result that still exceeds the budget.
+    """
+    from openfusion.synthesize import _truncate_panel_responses
+
+    # Three 100-char responses; token estimate ≈ 75 total, max_tokens=1 forces break.
+    responses = [("a", "a" * 100), ("b", "b" * 100), ("c", "c" * 100)]
+    result = _truncate_panel_responses(responses, max_tokens=1)
+    # All entries must survive — nothing was dropped.
+    assert len(result) == 3
+    # None were truncated (they were already at the floor).
+    assert all(len(content) == 100 for _, content in result)

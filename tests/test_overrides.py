@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
-from openfusion.config import JudgeConfig, OpenFusionConfig, PanelMember, Strategy
-from openfusion.overrides import MAX_OVERRIDE_PANEL, apply_overrides
+from openfusion.config import (
+    JudgeConfig,
+    OpenFusionConfig,
+    PanelMember,
+    PassThroughConfig,
+    Strategy,
+)
+from openfusion.overrides import MAX_OVERRIDE_PANEL, apply_overrides, set_all_keys
 
 
 def _base() -> OpenFusionConfig:
@@ -67,3 +73,37 @@ def test_base_config_not_mutated() -> None:
     apply_overrides(base, {"panel": ["a", "b"], "judge": "x"})
     assert [m.model for m in base.panel] == ["base"]
     assert base.judge.model == "jbase"
+
+
+def test_set_all_keys_replaces_every_key() -> None:
+    base = OpenFusionConfig(
+        panel=[
+            PanelMember(base_url="https://up/v1", api_key="old-panel", model="m1"),
+            PanelMember(base_url="https://up/v1", api_key="old-panel", model="m2"),
+        ],
+        judge=JudgeConfig(base_url="https://up/v1", api_key="old-judge", model="j"),
+        pass_through=PassThroughConfig(
+            base_url="https://up/v1", api_key="old-pass", model="p"
+        ),
+    )
+    cfg = set_all_keys(base, "new-key")
+    assert all(m.api_key == "new-key" for m in cfg.panel)
+    assert cfg.judge is not None and cfg.judge.api_key == "new-key"
+    assert cfg.pass_through is not None and cfg.pass_through.api_key == "new-key"
+
+
+def test_set_all_keys_handles_no_judge_or_pass_through() -> None:
+    base = OpenFusionConfig(
+        panel=[PanelMember(base_url="https://up/v1", api_key="old", model="m")],
+    )
+    cfg = set_all_keys(base, "new-key")
+    assert cfg.panel[0].api_key == "new-key"
+    assert cfg.judge is None
+    assert cfg.pass_through is None
+
+
+def test_set_all_keys_does_not_mutate_base() -> None:
+    base = _base()
+    set_all_keys(base, "new-key")
+    assert base.panel[0].api_key == "k"
+    assert base.judge is not None and base.judge.api_key == "k"
