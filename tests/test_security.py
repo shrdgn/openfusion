@@ -1,0 +1,261 @@
+"""Security tests: gateway auth, rate limits, and credential safety."""
+
+from __future__ import annotations
+
+import httpx
+import pytest
+import respx
+
+from openfusion.config import (
+    GatewayAuthConfig,
+    JudgeConfig,
+    LimitsConfig,
+    OpenFusionConfig,
+    PanelMember,
+    PassThroughConfig,
+    SelfFusionConfig,
+    Strategy,
+    TimeoutsConfig,
+)
+from openfusion.server import create_app
+
+
+def _base_config(**overrides) -> OpenFusionConfig:
+    return OpenFusionConfig(
+        strategy=Strategy.SELF_FUSION,
+        panel=[PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="judge"),
+        self_fusion=SelfFusionConfig(n=1),
+        timeouts=TimeoutsConfig(member_seconds=5, judge_seconds=5, total_seconds=15),
+        pass_through=PassThroughConfig(
+            base_url="https://mock.upstream/v1", api_key="k", model="pass-m"
+        ),
+        **overrides,
+    )
+
+
+@pytest.fixture
+def gateway_config() -> OpenFusionConfig:
+    return _base_config(gateway=GatewayAuthConfig(api_keys=["correct-key"]))
+
+
+# ---------------------------------------------------------------------------
+# /v1/chat/completions auth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_no_auth_returns_401(
+    gateway_config: OpenFusionConfig,
+) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/chat/completions",
+            json={"messages": [{"role": "user", "content": "hi"}]},
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_wrong_key_returns_401(
+    gateway_config: OpenFusionConfig,
+) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/chat/completions",
+            headers={"Authorization": "Bearer wrong-key"},
+            json={"messages": [{"role": "user", "content": "hi"}]},
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_correct_key_proceeds(
+    gateway_config: OpenFusionConfig,
+) -> None:
+    app = create_app(gateway_config)
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://mock.upstream/v1/chat/completions").mock(
+            side_effect=[
+                httpx.Response(200, json={"choices": [{"message": {"content": "a"}}]}),
+                httpx.Response(
+                    200,
+                    text=(
+                        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}\n\n'
+                        "data: [DONE]\n\n"
+                    ),
+                    headers={"content-type": "text/event-stream"},
+                ),
+            ]
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.post(
+                "/v1/chat/completions",
+                headers={"Authorization": "Bearer correct-key"},
+                json={
+                    "model": "openfusion",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False,
+                },
+            )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# /v1/estimate auth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_estimate_no_auth_returns_401(gateway_config: OpenFusionConfig) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/estimate", json={"messages": [{"role": "user", "content": "hi"}]}
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_estimate_wrong_key_returns_401(gateway_config: OpenFusionConfig) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/estimate",
+            headers={"Authorization": "Bearer bad"},
+            json={"messages": [{"role": "user", "content": "hi"}]},
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# /v1/runtime/api-key auth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_endpoint_no_auth_returns_401(
+    gateway_config: OpenFusionConfig,
+) -> None:
+    cfg = _base_config(
+        gateway=GatewayAuthConfig(api_keys=["correct-key"]),
+        allow_ui_api_key=True,
+    )
+    app = create_app(cfg)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post("/v1/runtime/api-key", json={"api_key": "new"})
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_runtime_key_endpoint_correct_key_succeeds(
+    gateway_config: OpenFusionConfig,
+) -> None:
+    cfg = _base_config(
+        gateway=GatewayAuthConfig(api_keys=["correct-key"]),
+        allow_ui_api_key=True,
+    )
+    app = create_app(cfg)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/runtime/api-key",
+            headers={"Authorization": "Bearer correct-key"},
+            json={"api_key": "new-key"},
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 200
+    assert res.json()["api_key_set"] is True
+
+
+# ---------------------------------------------------------------------------
+# No gateway configured → all endpoints are open
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_no_gateway_chat_completions_is_open() -> None:
+    app = create_app(_base_config())
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://mock.upstream/v1/chat/completions").mock(
+            side_effect=[
+                httpx.Response(200, json={"choices": [{"message": {"content": "a"}}]}),
+                httpx.Response(
+                    200,
+                    text=(
+                        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}\n\n'
+                        "data: [DONE]\n\n"
+                    ),
+                    headers={"content-type": "text/event-stream"},
+                ),
+            ]
+        )
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.post(
+                "/v1/chat/completions",
+                json={
+                    "model": "openfusion",
+                    "messages": [{"role": "user", "content": "hi"}],
+                    "stream": False,
+                },
+            )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Concurrency / rate limits
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_concurrency_limit_returns_429() -> None:
+    """When max_concurrent_requests=1 is exhausted a second request gets 429."""
+    import asyncio
+
+    cfg = _base_config(limits=LimitsConfig(max_concurrent_requests=1))
+    app = create_app(cfg)
+
+    # Hold the slot open with a slow upstream so the second request queues.
+    slow_event = asyncio.Event()
+
+    async def _slow_handler(request: httpx.Request) -> httpx.Response:
+        await slow_event.wait()
+        return httpx.Response(200, json={"choices": [{"message": {"content": "a"}}]})
+
+    with respx.mock(assert_all_called=False) as mock:
+        mock.post("https://mock.upstream/v1/chat/completions").mock(side_effect=_slow_handler)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            # Fire two concurrent requests; the second must bounce with 429.
+            task1 = asyncio.create_task(
+                client.post(
+                    "/v1/chat/completions",
+                    json={"messages": [{"role": "user", "content": "hi"}], "model": "pass-m"},
+                )
+            )
+            # Give task1 a moment to acquire the slot.
+            await asyncio.sleep(0.05)
+            res2 = await client.post(
+                "/v1/chat/completions",
+                json={"messages": [{"role": "user", "content": "hi"}], "model": "pass-m"},
+            )
+            slow_event.set()
+            await task1
+    await app.state.upstream_client.aclose()
+    assert res2.status_code == 429

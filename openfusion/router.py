@@ -9,12 +9,21 @@ the panel for prompts that look like they benefit from it.
 
 from __future__ import annotations
 
+import logging
 from enum import StrEnum
 from typing import Any
 
 from openfusion.config import RouteModel, RouterConfig, RouterMode, Tier
 from openfusion.cost import RequestPhase
 from openfusion.upstream import UpstreamClient
+
+_log = logging.getLogger(__name__)
+
+
+def _record_fallback() -> None:
+    from openfusion.metrics import METRICS  # local import avoids circular dependency
+
+    METRICS.record_router_fallback()
 
 
 class RouteDecision(StrEnum):
@@ -143,9 +152,13 @@ async def route_async(
             classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
         )
     except Exception:  # noqa: BLE001 - never fail routing on a classifier error
+        _log.warning("router: classifier call failed, falling back to heuristic")
+        _record_fallback()
         return route(body, config)
 
     if not isinstance(payload, dict):
+        _log.warning("router: classifier returned unexpected payload type, falling back to heuristic")  # noqa: E501  # noqa: E501
+        _record_fallback()
         return route(body, config)
     choices = payload.get("choices") or []
     text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
@@ -154,6 +167,8 @@ async def route_async(
         return RouteDecision.SOLO
     if "FUSE" in upper:
         return RouteDecision.FUSE
+    _log.warning("router: classifier response %r not recognized, falling back to heuristic", text)
+    _record_fallback()
     return route(body, config)
 
 
@@ -186,8 +201,12 @@ async def _classify_route(
             classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
         )
     except Exception:  # noqa: BLE001 - never fail routing on a classifier error
+        _log.warning("router: classifier call failed, falling back to heuristic")
+        _record_fallback()
         return None
     if not isinstance(payload, dict):
+        _log.warning("router: classifier returned unexpected payload type, falling back to heuristic")  # noqa: E501
+        _record_fallback()
         return None
     choices = payload.get("choices") or []
     text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
@@ -197,6 +216,8 @@ async def _classify_route(
     for candidate in config.route_models:
         if candidate.model.lower() in lowered:
             return RouteDecision.SOLO, candidate
+    _log.warning("router: classifier response %r matched no model, falling back to heuristic", text)
+    _record_fallback()
     return None
 
 
