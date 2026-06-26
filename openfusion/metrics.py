@@ -83,6 +83,11 @@ class Metrics:
                 if isinstance(cost, (int, float)):
                     self._add("openfusion_cost_usd_total", {"phase": phase}, cost)
 
+    def record_router_fallback(self) -> None:
+        """Record one classifier-to-heuristic fallback in the router."""
+        with self._lock:
+            self._add("openfusion_router_fallbacks_total", {}, 1)
+
     def record_panel(self, *, succeeded: int, failed: int) -> None:
         """Record panel-member outcomes for one fusion request."""
         with self._lock:
@@ -134,6 +139,7 @@ class Metrics:
                 "openfusion_panel_members_total": "Panel-member outcomes across fusion requests.",
                 "openfusion_tokens_total": "Tokens consumed by phase and kind.",
                 "openfusion_cost_usd_total": "Reported upstream cost (USD) by phase.",
+                "openfusion_router_fallbacks_total": "Router classifier fallbacks to heuristic.",
             }
             for name, series in sorted(self._counters.items()):
                 lines.append(f"# HELP {name} {counter_help.get(name, name)}")
