@@ -216,6 +216,10 @@ class UpstreamClient:
                 if key in usage:
                     fields[key] = usage[key]
         LOGGER.log(level, "upstream_request %s", json.dumps(fields, sort_keys=True))
+        if label is not None and phase is not None:
+            METRICS.record_panel_member_latency(
+                label=label, phase=phase, latency_ms=latency_ms
+            )
 
         if phase:
             outcome = "success" if status_code is not None and status_code < 400 else "error"

@@ -34,6 +34,8 @@ class Metrics:
         self._latency_sum: dict[tuple[tuple[str, str], ...], float] = defaultdict(float)
         self._upstream_latency_count: dict[tuple[tuple[str, str], ...], int] = defaultdict(int)
         self._upstream_latency_sum: dict[tuple[tuple[str, str], ...], float] = defaultdict(float)
+        self._panel_latency_count: dict[tuple[tuple[str, str], ...], int] = defaultdict(int)
+        self._panel_latency_sum: dict[tuple[tuple[str, str], ...], float] = defaultdict(float)
 
     def _add(self, name: str, labels: dict[str, str], value: float) -> None:
         key = tuple(sorted(labels.items()))
@@ -83,6 +85,22 @@ class Metrics:
                 if isinstance(cost, (int, float)):
                     self._add("openfusion_cost_usd_total", {"phase": phase}, cost)
 
+    def record_panel_member_latency(self, *, label: str, phase: str, latency_ms: float) -> None:
+        """Record latency for a single panel-member upstream call."""
+        with self._lock:
+            key = (("label", label), ("phase", phase))
+            self._panel_latency_count[key] += 1
+            self._panel_latency_sum[key] += latency_ms
+
+    def record_cache(self, *, hit: bool) -> None:
+        """Record a response-cache lookup outcome."""
+        with self._lock:
+            self._add(
+                "openfusion_response_cache_total",
+                {"outcome": "hit" if hit else "miss"},
+                1,
+            )
+
     def record_router_fallback(self) -> None:
         """Record one classifier-to-heuristic fallback in the router."""
         with self._lock:
@@ -123,10 +141,18 @@ class Metrics:
                 }
                 for key in self._upstream_latency_count
             }
+            panel_latency = {
+                f"{dict(key).get('label','?')}/{dict(key).get('phase','?')}": {
+                    "count": self._panel_latency_count[key],
+                    "sum_ms": self._panel_latency_sum[key],
+                }
+                for key in self._panel_latency_count
+            }
         return {
             "counters": counters,
             "request_latency_ms": request_latency,
             "upstream_latency_ms": upstream_latency,
+            "panel_member_latency_ms": panel_latency,
         }
 
     def render_prometheus(self) -> str:
@@ -140,6 +166,7 @@ class Metrics:
                 "openfusion_tokens_total": "Tokens consumed by phase and kind.",
                 "openfusion_cost_usd_total": "Reported upstream cost (USD) by phase.",
                 "openfusion_router_fallbacks_total": "Router classifier fallbacks to heuristic.",
+                "openfusion_response_cache_total": "Response cache lookups by outcome (hit/miss).",
             }
             for name, series in sorted(self._counters.items()):
                 lines.append(f"# HELP {name} {counter_help.get(name, name)}")
@@ -160,6 +187,13 @@ class Metrics:
                 help_text="Upstream call latency in milliseconds.",
                 counts=self._upstream_latency_count,
                 sums=self._upstream_latency_sum,
+            )
+            self._render_summary(
+                lines,
+                name="openfusion_panel_member_latency_ms",
+                help_text="Per-panel-member upstream latency in milliseconds.",
+                counts=self._panel_latency_count,
+                sums=self._panel_latency_sum,
             )
         return "\n".join(lines) + "\n"
 
@@ -189,6 +223,8 @@ class Metrics:
             self._latency_sum.clear()
             self._upstream_latency_count.clear()
             self._upstream_latency_sum.clear()
+            self._panel_latency_count.clear()
+            self._panel_latency_sum.clear()
 
 
 def _fmt(value: float) -> str:

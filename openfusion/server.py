@@ -410,17 +410,24 @@ def create_app(
                     cache.put(cache_k, {"content": content, "usage": usage})
                 await fire_usage(usage)
 
-            if cache_k is not None and (hit := cache.get(cache_k)) is not None:
+            cached_hit = cache.get(cache_k) if cache_k is not None else None
+            if cache_k is not None:
+                METRICS.record_cache(hit=cached_hit is not None)
+            if cached_hit is not None:
                 _record_request(route_label, "success", started)
-                await fire_usage(hit.get("usage"))
+                await fire_usage(cached_hit.get("usage"))
                 model_name = cfg.fusion_model_name
                 if stream:
                     cached = StreamingResponse(
-                        replay_cached_stream(hit["content"], hit.get("usage"), model_name),
+                        replay_cached_stream(
+                            cached_hit["content"], cached_hit.get("usage"), model_name
+                        ),
                         media_type="text/event-stream",
                     )
                     return _attach_release(cached, limiter, acquired)
-                payload = cached_response_dict(hit["content"], hit.get("usage"), model_name)
+                payload = cached_response_dict(
+                    cached_hit["content"], cached_hit.get("usage"), model_name
+                )
                 return _attach_release(JSONResponse(content=payload), limiter, acquired)
 
             if stream:
