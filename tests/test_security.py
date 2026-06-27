@@ -224,8 +224,8 @@ async def test_no_gateway_chat_completions_is_open() -> None:
 
 
 @pytest.mark.asyncio
-async def test_concurrency_limit_returns_429() -> None:
-    """When max_in_flight=1 is exhausted a new request gets 429."""
+async def test_concurrency_limit_returns_503() -> None:
+    """When max_in_flight=1 is exhausted a new request gets 503."""
     cfg = _base_config(limits=LimitsConfig(max_in_flight=1))
     app = create_app(cfg)
 
