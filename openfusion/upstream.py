@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from openfusion.config import PanelMember
+from openfusion.config import JudgeConfig, PanelMember
 from openfusion.errors import UpstreamError
 from openfusion.metrics import METRICS
 
@@ -31,7 +31,7 @@ class UpstreamClient:
 
     async def chat_completion(
         self,
-        member: PanelMember,
+        member: PanelMember | JudgeConfig,
         body: dict[str, Any],
         *,
         stream: bool,
@@ -77,7 +77,7 @@ class UpstreamClient:
 
     async def _anthropic_chat_completion(
         self,
-        member: PanelMember,
+        member: PanelMember | JudgeConfig,
         body: dict[str, Any],
         *,
         stream: bool,
