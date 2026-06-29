@@ -39,6 +39,54 @@ def _config() -> OpenFusionConfig:
     )
 
 
+def test_estimate_input_tokens_string_content() -> None:
+    from openfusion.estimate import _estimate_input_tokens
+
+    messages = [{"role": "user", "content": "x" * 40}]
+    assert _estimate_input_tokens(messages) == 10  # 40 chars // 4
+
+
+def test_estimate_input_tokens_multimodal_text_blocks() -> None:
+    from openfusion.estimate import _estimate_input_tokens
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "x" * 40},
+                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
+            ],
+        }
+    ]
+    # Only the text block contributes; the image block is ignored.
+    assert _estimate_input_tokens(messages) == 10  # 40 chars // 4
+
+
+def test_estimate_input_tokens_mixed_messages() -> None:
+    from openfusion.estimate import _estimate_input_tokens
+
+    messages = [
+        {"role": "system", "content": "You are helpful."},  # 16 chars
+        {"role": "user", "content": [{"type": "text", "text": "a" * 20}]},  # 20 chars
+    ]
+    # 36 chars // 4 = 9, but max(1, ...) so 9
+    assert _estimate_input_tokens(messages) == 9
+
+
+def test_estimate_input_tokens_non_list_returns_zero() -> None:
+    from openfusion.estimate import _estimate_input_tokens
+
+    assert _estimate_input_tokens(None) == 0
+    assert _estimate_input_tokens("bad") == 0
+
+
+def test_estimate_input_tokens_empty_messages() -> None:
+    from openfusion.estimate import _estimate_input_tokens
+
+    # max(1, 0 // 4) == 1
+    assert _estimate_input_tokens([]) == 1
+
+
 def test_build_estimate_counts_calls_and_prices() -> None:
     prices = {
         "m1": {"prompt": 0.0, "completion": 0.0},

@@ -16,7 +16,7 @@ from openfusion.config import (
     TimeoutsConfig,
 )
 from openfusion.panel import MemberResponse, PanelResult
-from openfusion.ranked import _parse_choice, pick_best
+from openfusion.ranked import _original_user_text, _parse_choice, build_ranking_messages, pick_best
 from openfusion.server import create_app
 from openfusion.upstream import UpstreamClient
 
@@ -117,3 +117,101 @@ async def test_ranked_aggregator_end_to_end(mock_router) -> None:
     assert response.status_code == 200
     # The judge picked candidate 2 → the second panel member's answer.
     assert response.json()["choices"][0]["message"]["content"] == "ans-m2"
+
+
+# ---------------------------------------------------------------------------
+# _original_user_text
+# ---------------------------------------------------------------------------
+
+
+def test_original_user_text_strips_system_messages() -> None:
+    messages = [
+        {"role": "system", "content": "Be helpful."},
+        {"role": "user", "content": "What is 2+2?"},
+    ]
+    result = _original_user_text(messages)
+    assert "Be helpful." not in result
+    assert "What is 2+2?" in result
+
+
+def test_original_user_text_includes_assistant_turns() -> None:
+    # Non-system messages (user + assistant) are included to give the ranker full context.
+    messages = [
+        {"role": "user", "content": "Question"},
+        {"role": "assistant", "content": "Previous answer"},
+    ]
+    result = _original_user_text(messages)
+    assert "Question" in result
+    assert "Previous answer" in result
+
+
+def test_original_user_text_empty_messages() -> None:
+    assert _original_user_text([]) == ""
+
+
+def test_original_user_text_only_system_gives_empty() -> None:
+    messages = [{"role": "system", "content": "System only."}]
+    assert _original_user_text(messages) == ""
+
+
+# ---------------------------------------------------------------------------
+# build_ranking_messages
+# ---------------------------------------------------------------------------
+
+
+def _two_response_panel() -> PanelResult:
+    return PanelResult(
+        responses=[
+            MemberResponse(label="a", content="first answer", model="m"),
+            MemberResponse(label="b", content="second answer", model="m"),
+        ]
+    )
+
+
+def test_build_ranking_messages_structure() -> None:
+    messages = build_ranking_messages(
+        [{"role": "user", "content": "What is the capital of France?"}],
+        _two_response_panel(),
+    )
+    assert len(messages) == 2
+    assert messages[0]["role"] == "system"
+    assert messages[1]["role"] == "user"
+
+
+def test_build_ranking_messages_numbers_candidates() -> None:
+    messages = build_ranking_messages(
+        [{"role": "user", "content": "q"}],
+        _two_response_panel(),
+    )
+    user_content = messages[1]["content"]
+    assert "[1] first answer" in user_content
+    assert "[2] second answer" in user_content
+
+
+def test_build_ranking_messages_includes_original_question() -> None:
+    messages = build_ranking_messages(
+        [
+            {"role": "system", "content": "You are helpful."},
+            {"role": "user", "content": "Which is better?"},
+        ],
+        _two_response_panel(),
+    )
+    user_content = messages[1]["content"]
+    # System message should not appear in the ranking prompt body.
+    assert "You are helpful." not in user_content
+    assert "Which is better?" in user_content
+
+
+def test_build_ranking_messages_three_candidates_numbered_correctly() -> None:
+    panel = PanelResult(
+        responses=[
+            MemberResponse(label="x", content="ans-one", model="m"),
+            MemberResponse(label="y", content="ans-two", model="m"),
+            MemberResponse(label="z", content="ans-three", model="m"),
+        ]
+    )
+    messages = build_ranking_messages([{"role": "user", "content": "q"}], panel)
+    user_content = messages[1]["content"]
+    assert "[1] ans-one" in user_content
+    assert "[2] ans-two" in user_content
+    assert "[3] ans-three" in user_content
