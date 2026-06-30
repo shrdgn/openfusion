@@ -13,10 +13,16 @@ def _estimate_input_tokens(messages: Any) -> int:
         return 0
     chars = 0
     for message in messages:
-        if isinstance(message, dict):
-            content = message.get("content")
-            if isinstance(content, str):
-                chars += len(content)
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            chars += len(content)
+        elif isinstance(content, list):
+            # OpenAI multimodal content blocks: count text parts only; ignore images
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    chars += len(block["text"])
     return max(1, chars // 4)  # rough; ~4 chars/token
 
 
