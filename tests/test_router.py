@@ -305,3 +305,34 @@ async def test_route_request_classifier_error_falls_back(mock_router) -> None:
     decision, rm = await route_request(_body("hi"), _model_routes(), client)
     assert decision == RouteDecision.SOLO and rm.model == "cheap/fast"
     await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_request_classifier_unrecognized_response_falls_back(mock_router) -> None:
+    """When classifier returns garbage (not FUSE and not a known model), fall back to heuristic."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": "I have no idea"}}]}
+        )
+    )
+    client = UpstreamClient()
+    # Unrecognized response -> heuristic; short prompt routes SOLO to cheapest model.
+    decision, rm = await route_request(_body("hi"), _model_routes(), client)
+    assert decision == RouteDecision.SOLO
+    assert rm is not None and rm.model == "cheap/fast"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_unrecognized_classifier_response_falls_back(mock_router) -> None:
+    """route_async falls back to heuristic when classifier reply matches neither SOLO nor FUSE."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": "no idea"}}]}
+        )
+    )
+    client = UpstreamClient()
+    # 'no idea' contains neither SOLO nor FUSE -> heuristic; keyword prompt fuses.
+    decision = await route_async(_body("compare these options"), _model_router(), client)
+    assert decision == RouteDecision.FUSE
+    await client.aclose()

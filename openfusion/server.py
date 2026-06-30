@@ -235,7 +235,11 @@ def create_app(
         )
 
     @app.get("/v1/config")
-    async def active_config(cfg: OpenFusionConfig = Depends(get_config)) -> dict[str, Any]:
+    async def active_config(
+        cfg: OpenFusionConfig = Depends(get_config),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _validate_gateway_auth(cfg, authorization)
         return _active_config_payload(cfg, app.state.runtime_api_key)
 
     @app.post("/v1/estimate")

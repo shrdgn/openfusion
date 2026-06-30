@@ -110,6 +110,44 @@ async def test_chat_completions_correct_key_proceeds(
 
 
 # ---------------------------------------------------------------------------
+# /v1/config auth
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_config_no_auth_returns_401(gateway_config: OpenFusionConfig) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/v1/config")
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_config_wrong_key_returns_401(gateway_config: OpenFusionConfig) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get("/v1/config", headers={"Authorization": "Bearer wrong"})
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_config_correct_key_returns_200(gateway_config: OpenFusionConfig) -> None:
+    app = create_app(gateway_config)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(
+            "/v1/config", headers={"Authorization": "Bearer correct-key"}
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 200
+    assert "panel" in res.json()
+
+
+# ---------------------------------------------------------------------------
 # /v1/estimate auth
 # ---------------------------------------------------------------------------
 

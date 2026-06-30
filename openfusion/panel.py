@@ -233,10 +233,14 @@ async def _run_debate_round(
         except (UpstreamError, TimeoutError):
             return response  # keep the first-round answer if revision fails
         # Carry forward token usage so cost reflects both rounds.
-        if revised.usage and response.usage:
-            for key in ("prompt_tokens", "completion_tokens", "total_tokens", "cost"):
-                if key in response.usage:
-                    revised.usage[key] = revised.usage.get(key, 0) + response.usage[key]
+        if response.usage:
+            if revised.usage:
+                for key in ("prompt_tokens", "completion_tokens", "total_tokens", "cost"):
+                    if key in response.usage:
+                        revised.usage[key] = revised.usage.get(key, 0) + response.usage[key]
+            else:
+                # Revision returned no usage data; at minimum preserve round-1 cost.
+                revised.usage = dict(response.usage)
         return revised
 
     revised = await asyncio.gather(*(revise(r) for r in current))

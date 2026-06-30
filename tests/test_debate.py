@@ -64,6 +64,37 @@ async def test_debate_runs_a_revision_round(mock_router) -> None:
 
 
 @pytest.mark.asyncio
+async def test_debate_preserves_round1_usage_when_revision_has_none(mock_router) -> None:
+    """When revision call returns no usage, round-1 usage is carried forward."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        text = json.dumps(payload["messages"])
+        if "other independent experts" in text:
+            # Revision succeeds but returns no usage data.
+            return httpx.Response(
+                200, json={"choices": [{"message": {"role": "assistant", "content": "revised"}}]}
+            )
+        return httpx.Response(200, json=_completion("first"))
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(side_effect=handler)
+    client = UpstreamClient()
+
+    result = await gather_panel(
+        {"messages": [{"role": "user", "content": "hi"}]},
+        _two_member_config(),
+        client,
+    )
+
+    assert len(result.responses) == 2
+    assert all(r.content == "revised" for r in result.responses)
+    # Round-1 usage must not be silently discarded when the revision has no usage.
+    assert all(r.usage is not None for r in result.responses)
+    assert all(r.usage.get("prompt_tokens", 0) >= 1 for r in result.responses)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_debate_noop_with_single_member(mock_router) -> None:
     mock_router.post("https://mock.upstream/v1/chat/completions").mock(
         return_value=httpx.Response(200, json=_completion("only"))
