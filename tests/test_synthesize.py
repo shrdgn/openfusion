@@ -134,7 +134,10 @@ def _synth_config() -> OpenFusionConfig:
 
 def _panel_with(*contents: str) -> PanelResult:
     return PanelResult(
-        responses=[MemberResponse(label=f"m{i}", content=c, model="m") for i, c in enumerate(contents)]
+        responses=[
+            MemberResponse(label=f"m{i}", content=c, model="m")
+            for i, c in enumerate(contents)
+        ]
     )
 
 
