@@ -256,6 +256,70 @@ async def test_vote_and_stream_usage_event_includes_total(mock_router) -> None:
 
 
 @pytest.mark.asyncio
+async def test_ranked_and_stream_success_emits_winner_and_usage(mock_router) -> None:
+    """ranked_and_stream's success path (gather → pick_best → content/usage/[DONE])
+    previously had no coverage — only the panel-failure branch was tested.
+    """
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "answer-a"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "answer-b"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+                },
+            ),
+            # Judge ranking call: 1-indexed reply "2" picks panel member index 1 ("answer-b").
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "2"}}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 1, "total_tokens": 21},
+                },
+            ),
+        ]
+    )
+    config = _panel_config(Aggregator.RANKED)
+    client = UpstreamClient()
+    chunks = [line async for line in ranked_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    assert events[-1][1] == "[DONE]"
+
+    progress_events = [
+        json.loads(data) for event, data in events if event == "progress"
+    ]
+    ranked_progress = [p for p in progress_events if p.get("stage") == "ranked"]
+    assert ranked_progress, "expected a 'ranked' progress event"
+    assert ranked_progress[0]["winner"] == 1
+
+    content_chunks = [
+        json.loads(data)
+        for event, data in events
+        if event is None and data != "[DONE]"
+    ]
+    contents = [
+        c["choices"][0]["delta"].get("content")
+        for c in content_chunks
+        if c["choices"][0]["delta"].get("content")
+    ]
+    assert contents == ["answer-b"]
+
+    finish_reasons = [c["choices"][0].get("finish_reason") for c in content_chunks]
+    assert "stop" in finish_reasons
+
+
+@pytest.mark.asyncio
 async def test_capture_stream_skips_on_complete_on_error_chunk() -> None:
     """capture_stream must NOT call on_complete when the stream contains an error chunk.
 
