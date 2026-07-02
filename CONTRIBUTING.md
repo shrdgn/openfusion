@@ -31,12 +31,24 @@ pip install -e ".[dev]"
 
 ## Before you open a PR
 
-CI runs exactly these two checks — run them locally first:
+CI runs two jobs — run the relevant checks locally first:
 
 ```bash
 ruff check .          # lint + import order (ruff format-compatible)
-pytest -q             # 70+ tests, no network (upstreams are mocked with respx)
+pytest -q             # 280+ tests, no network (upstreams are mocked with respx)
 ```
+
+If you touched `web/`, also run the UI job's checks:
+
+```bash
+cd web
+npm ci
+npm test              # Vitest
+npm run build         # rebuilds openfusion/static/playground/
+```
+
+CI fails if the built UI in `openfusion/static/playground` isn't committed and
+in sync with `web/`, so commit the rebuilt output alongside any `web/` change.
 
 Tests must not require live API keys or network access. Mock upstreams with
 `respx` (see `tests/test_integration.py` for the pattern). The only live path is
@@ -54,13 +66,14 @@ the opt-in `scripts/openrouter_smoke.py`, which never runs in CI.
 ## Good first contributions
 
 Areas where help is especially useful (see "Open questions" / "Follow-up" in
-`DESIGN.md` and `docs/ARCHITECTURE.md`):
+`DESIGN.md` and `docs/ARCHITECTURE.md`, and "Next" in `ROADMAP.md`):
 
 - Fusion-aware tool/function-calling (today tool requests pass through unfused).
-- A per-prompt router gate (when to fuse vs. pass through).
-- Additional synthesis strategies in `synthesize.py` (debate, ranked-choice).
+- Routing that learns from outcomes (bias future routing by which model/recipe
+  did well; the classifier-based picker in `router.py` is the current baseline).
+- Live `$` pricing in `/v1/estimate` for non-OpenRouter providers, and a CLI
+  cost preview (`openfusion ask --estimate`).
 - Hardening the DRACO benchmark to the full 100 tasks with a stronger grader.
-- Prompt-caching for the self-fusion shared prefix.
 
 ## License
 
