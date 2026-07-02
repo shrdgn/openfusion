@@ -32,9 +32,17 @@ def save_key(key: str) -> None:
         return
     path = credentials_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(key + "\n", encoding="utf-8")
-    with contextlib.suppress(OSError):
-        path.chmod(0o600)
+    # Open with mode 0o600 up front so a newly created file is never briefly
+    # readable under the umask's default permissions before being restricted.
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(key + "\n")
+    finally:
+        # Belt-and-suspenders for a pre-existing file that was created with
+        # looser permissions before this fix.
+        with contextlib.suppress(OSError):
+            path.chmod(0o600)
 
 
 def clear_key() -> None:

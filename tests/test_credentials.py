@@ -29,6 +29,25 @@ def test_saved_key_file_is_private() -> None:
     assert mode == 0o600
 
 
+def test_key_file_created_private_even_if_chmod_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The file must be created with 0o600 directly, not widened then narrowed.
+
+    Regression test for a TOCTOU window where the key file was written with
+    the process's default (umask-derived) permissions and only restricted to
+    0o600 afterwards via a separate chmod call.
+    """
+
+    def boom(self: Path, mode: int) -> None:
+        raise OSError("chmod unsupported")
+
+    monkeypatch.setattr(Path, "chmod", boom)
+    save_key("sk-or-123")
+    mode = stat.S_IMODE(credentials_path().stat().st_mode)
+    assert mode == 0o600
+
+
 def test_clear_key() -> None:
     save_key("sk-or-123")
     clear_key()

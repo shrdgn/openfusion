@@ -125,3 +125,57 @@ async def test_identical_request_served_from_cache(mock_router) -> None:
     assert second.json().get("cached") is True
     # The second identical request makes no new upstream calls.
     assert calls["n"] == after_first
+
+
+@pytest.mark.asyncio
+async def test_cache_hit_replayed_as_sse_stream(mock_router) -> None:
+    """A cache hit on a streaming request is replayed as an SSE stream.
+
+    Exercises the `replay_cached_stream` path (server.py's `stream=True` +
+    cache-hit branch), which the non-streaming cache test above doesn't cover.
+    """
+    calls = {"n": 0}
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": "42"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            },
+        )
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(side_effect=handler)
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        aggregator=Aggregator.VOTE,
+        response_cache=ResponseCacheConfig(enabled=True),
+        panel=[
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1"),
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m2"),
+        ],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
+        timeouts=TimeoutsConfig(member_seconds=5, judge_seconds=5, total_seconds=15),
+    )
+    app = create_app(config)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        body = {
+            "model": "openfusion",
+            "messages": [{"role": "user", "content": "q"}],
+            "stream": True,
+        }
+        first = await client.post("/v1/chat/completions", json=body)
+        after_first = calls["n"]
+        second = await client.post("/v1/chat/completions", json=body)
+    await app.state.upstream_client.aclose()
+
+    assert first.headers["content-type"].startswith("text/event-stream")
+    assert second.headers["content-type"].startswith("text/event-stream")
+    assert "42" in second.text
+    assert "[DONE]" in second.text
+    assert '"cached": true' in second.text
+    # The second identical request makes no new upstream calls.
+    assert calls["n"] == after_first
