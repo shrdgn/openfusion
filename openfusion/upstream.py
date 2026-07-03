@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from openfusion.config import PanelMember
+from openfusion.config import JudgeConfig, PanelMember
 from openfusion.errors import UpstreamError
 from openfusion.metrics import METRICS
 
@@ -31,7 +31,7 @@ class UpstreamClient:
 
     async def chat_completion(
         self,
-        member: PanelMember,
+        member: PanelMember | JudgeConfig,
         body: dict[str, Any],
         *,
         stream: bool,
@@ -57,7 +57,7 @@ class UpstreamClient:
                 headers,
                 payload,
                 request_timeout,
-                label=member.label,
+                label=getattr(member, "label", None),
                 phase=phase,
             )
         return await self._json_chat_completion(
@@ -65,7 +65,7 @@ class UpstreamClient:
             headers,
             payload,
             request_timeout,
-            label=member.label,
+            label=getattr(member, "label", None),
             phase=phase,
         )
 
@@ -77,7 +77,7 @@ class UpstreamClient:
 
     async def _anthropic_chat_completion(
         self,
-        member: PanelMember,
+        member: PanelMember | JudgeConfig,
         body: dict[str, Any],
         *,
         stream: bool,
@@ -96,7 +96,7 @@ class UpstreamClient:
         if stream:
             return self._anthropic_stream(
                 url, headers, payload, request_timeout,
-                label=member.label, phase=phase,
+                label=getattr(member, "label", None), phase=phase,
             )
         started = time.perf_counter()
         response = await self._client.post(
@@ -105,7 +105,7 @@ class UpstreamClient:
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         if response.status_code >= 400:
             self._log_request(
-                phase=phase, label=member.label,
+                phase=phase, label=getattr(member, "label", None),
                 model=member.model, stream=False,
                 status_code=response.status_code, latency_ms=elapsed_ms,
                 level=logging.WARNING,
@@ -114,7 +114,7 @@ class UpstreamClient:
         raw = response.json()
         converted = _anthropic_to_openai(raw)
         self._log_request(
-            phase=phase, label=member.label,
+            phase=phase, label=getattr(member, "label", None),
             model=member.model, stream=False,
             status_code=response.status_code, latency_ms=elapsed_ms,
             usage=self._extract_usage(converted),
