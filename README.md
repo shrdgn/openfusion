@@ -177,6 +177,19 @@ limits:
 These are best-effort, single-process guards — pair them with provider-side budgets and, for
 multi-replica deployments, an edge rate limiter.
 
+- **Cost preview** — `POST /v1/estimate` (same body as `/v1/chat/completions`) returns the number of
+  upstream calls, an input-token estimate, the output cap, and a best-effort `$` figure from cached
+  OpenRouter pricing. The playground shows this live as you type.
+- **Response cache** (`response_cache.enabled: true`) — identical fused requests (same prompt +
+  recipe) are served from an in-process TTL/LRU cache instead of re-running the panel:
+
+  ```yaml
+  response_cache:
+    enabled: true
+    ttl_seconds: 300    # default
+    max_entries: 512    # default
+  ```
+
 ## How it works
 
 A request to `model: "openfusion"` is fanned out to a panel of models in parallel (each optionally
@@ -204,7 +217,8 @@ flowchart LR
     class J,R accent;
 ```
 
-- **Drop-in.** OpenAI-compatible `POST /v1/chat/completions` + `/v1/models`, real SSE streaming.
+- **Drop-in.** OpenAI-compatible `POST /v1/chat/completions` + `/v1/models`, real SSE streaming,
+  plus a `POST /v1/estimate` cost preview.
 - **No lock-in.** Each panel member + judge is `{base_url, api_key, model}`. OpenRouter is the
   default upstream; OpenAI, Together, local vLLM/Ollama all work — as does Anthropic's own
   Messages API natively (auto-detected from `base_url`, or set `provider: anthropic` explicitly):

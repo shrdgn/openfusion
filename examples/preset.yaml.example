@@ -35,7 +35,7 @@ preset: budget   # or: quality
 # Auto Router: answer simple prompts with one model, fuse only the hard ones.
 # router:
 #   enabled: true
-#   mode: heuristic     # heuristic | always | never
+#   mode: heuristic     # heuristic | model | always | never
 #   min_chars: 280
 
 # Multi-round debate: panel members revise after seeing each other's answers.

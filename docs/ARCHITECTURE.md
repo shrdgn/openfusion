@@ -10,9 +10,13 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 |--------|----------------|-------------|
 | `server.py` | HTTP routes, auth gate, routing (`openfusion` vs pass-through), cancellation orchestration | SSE framing, judge prompt logic |
 | `config.py` | Typed config from YAML + env | HTTP or upstream calls |
+| `overrides.py` | Per-request panel/judge/preset/tools overrides; fills in the runtime UI API key | HTTP, SSE framing |
 | `cost.py` | Token ceilings and request cost policy | Provider-specific pricing math |
+| `pricing.py` | Cached best-effort per-model `$` pricing from the upstream `/models` endpoint | Business logic about panels or judges |
+| `estimate.py` | Pre-run cost/usage estimate for `POST /v1/estimate` (calls, tokens, `$`) | HTTP, upstream calls |
 | `router.py` | Per-prompt fuse-vs-solo decision (heuristic or model classifier) | SSE framing |
 | `limits.py` | Concurrency cap + per-key rate limiting | HTTP, prompt/secret handling |
+| `responsecache.py` | In-process TTL/LRU cache of fused answers, keyed by prompt + recipe | HTTP, upstream calls |
 | `cache.py` | Prompt-cache breakpoint marking for the shared prefix | HTTP or upstream calls |
 | `upstream.py` | Shared httpx client for OpenAI-compatible APIs | Business logic about panels or judges |
 | `panel.py` | Parallel fan-out, timeouts, degrade, 429 retry, debate rounds | SSE framing |
@@ -93,7 +97,7 @@ server-side. `GET /v1/config` exposes the active panel/judge and onboarding flag
 | SSRF via `base_url` | Config is operator-controlled; document trust boundary | Optional URL allowlist for enterprise |
 | Token burn on cancel | Cancel panel/judge tasks on client disconnect | Integration test for cancellation |
 | Judge context overflow | Truncate longest panel answers first (`max_panel_tokens`) | Tokenizer-accurate counting |
-| Concurrency / DoS | No global in-flight cap in MVP; rely on httpx pool + uvicorn workers | Add semaphore + queue limits |
+| Concurrency / DoS | `limits.py` enforces an optional `max_in_flight` cap (`OverloadedError`/503) and a per-key `rate_limit_per_minute` window (`RateLimitError`/429); both off (unlimited) by default | Limits are in-process/best-effort, not a substitute for an edge proxy or a distributed limiter |
 
 ## Testing layers
 
