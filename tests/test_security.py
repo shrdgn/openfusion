@@ -220,6 +220,44 @@ async def test_runtime_key_endpoint_correct_key_succeeds(
     assert res.json()["api_key_set"] is True
 
 
+@pytest.mark.asyncio
+async def test_runtime_api_key_is_scoped_per_client() -> None:
+    """One caller's UI-set key must not be visible to, or usable by, another.
+
+    Regression test: app.state.runtime_api_key used to be a single process-wide
+    value shared by every caller, so setting a key as one gateway client leaked
+    it (and its billing) to every other client's requests.
+    """
+    cfg = _base_config(
+        gateway=GatewayAuthConfig(api_keys=["client-a-key", "client-b-key"]),
+        allow_ui_api_key=True,
+    )
+    app = create_app(cfg)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        set_res = await client.post(
+            "/v1/runtime/api-key",
+            headers={"Authorization": "Bearer client-a-key"},
+            json={"api_key": "sk-belongs-to-a"},
+        )
+        assert set_res.status_code == 200
+
+        cfg_a = (
+            await client.get(
+                "/v1/config", headers={"Authorization": "Bearer client-a-key"}
+            )
+        ).json()
+        cfg_b = (
+            await client.get(
+                "/v1/config", headers={"Authorization": "Bearer client-b-key"}
+            )
+        ).json()
+    await app.state.upstream_client.aclose()
+
+    assert cfg_a["api_key_set"] is True
+    assert cfg_b["api_key_set"] is False
+
+
 # ---------------------------------------------------------------------------
 # No gateway configured → all endpoints are open
 # ---------------------------------------------------------------------------

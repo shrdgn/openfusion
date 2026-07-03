@@ -197,7 +197,9 @@ def create_app(
     app.state.limiter = RequestLimiter(app_config.limits if app_config else LimitsConfig())
     rc = app_config.response_cache if app_config else ResponseCacheConfig()
     app.state.response_cache = ResponseCache(rc.ttl_seconds, rc.max_entries)
-    app.state.runtime_api_key = None
+    # Keyed by the caller's gateway token (or "anonymous") so one client's UI-set
+    # key is never used for another client's requests. See _client_key().
+    app.state.runtime_api_keys = {}
     app.mount(
         "/playground",
         StaticFiles(directory=PLAYGROUND_DIR, html=True),
@@ -240,7 +242,8 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _validate_gateway_auth(cfg, authorization)
-        return _active_config_payload(cfg, app.state.runtime_api_key)
+        runtime_key = app.state.runtime_api_keys.get(_client_key(authorization))
+        return _active_config_payload(cfg, runtime_key)
 
     @app.post("/v1/estimate")
     async def estimate(
@@ -283,7 +286,11 @@ def create_app(
         if not isinstance(body, dict):
             raise InvalidRequestError("Request body must be a JSON object")
         key = str(body.get("api_key", "")).strip()
-        app.state.runtime_api_key = key or None
+        client_key = _client_key(authorization)
+        if key:
+            app.state.runtime_api_keys[client_key] = key
+        else:
+            app.state.runtime_api_keys.pop(client_key, None)
         return {"ok": True, "api_key_set": bool(key)}
 
     @app.get("/v1/models")
@@ -357,7 +364,8 @@ def create_app(
                     )
                 cfg = apply_overrides(cfg, override)
 
-            cfg = fill_missing_keys(cfg, app.state.runtime_api_key)
+            runtime_key = app.state.runtime_api_keys.get(_client_key(authorization))
+            cfg = fill_missing_keys(cfg, runtime_key)
             if is_missing_api_key(cfg):
                 raise InvalidRequestError(
                     "No upstream API key configured. Add one in the playground "
