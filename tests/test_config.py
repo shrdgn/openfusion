@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from openfusion.config import Aggregator, OpenFusionConfig, Strategy, load_config
+from openfusion.config import (
+    Aggregator,
+    JudgeConfig,
+    OpenFusionConfig,
+    PanelMember,
+    PassThroughConfig,
+    Strategy,
+    load_config,
+)
 
 
 def test_load_example_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -143,3 +151,17 @@ def test_resolved_pass_through_from_panel() -> None:
     )
     resolved = config.resolved_pass_through()
     assert resolved.model == "solo"
+
+
+def test_base_url_trailing_slash_is_stripped_everywhere() -> None:
+    """PanelMember, JudgeConfig, and PassThroughConfig share one strip_trailing_slash
+    validator; a trailing slash would otherwise produce a double slash against
+    upstream paths like f"{base_url}/chat/completions".
+    """
+    panel = PanelMember(base_url="https://example.com/v1/", api_key="k", model="m")
+    judge = JudgeConfig(base_url="https://example.com/v1/", api_key="k", model="m")
+    pass_through = PassThroughConfig(base_url="https://example.com/v1/", api_key="k", model="m")
+
+    assert panel.base_url == "https://example.com/v1"
+    assert judge.base_url == "https://example.com/v1"
+    assert pass_through.base_url == "https://example.com/v1"

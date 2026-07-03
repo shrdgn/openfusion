@@ -83,6 +83,10 @@ def _infer_provider(base_url: str) -> Literal["openai", "anthropic"]:
     return "openai"
 
 
+def _strip_trailing_slash(value: str) -> str:
+    return value.rstrip("/")
+
+
 class PanelMember(BaseModel):
     base_url: str
     api_key: str
@@ -90,10 +94,7 @@ class PanelMember(BaseModel):
     label: str | None = None
     provider: Literal["openai", "anthropic"] | None = None
 
-    @field_validator("base_url")
-    @classmethod
-    def strip_trailing_slash(cls, value: str) -> str:
-        return value.rstrip("/")
+    _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
 
     @model_validator(mode="after")
     def infer_provider(self) -> PanelMember:
@@ -109,10 +110,7 @@ class JudgeConfig(BaseModel):
     max_panel_tokens: int = Field(default=120_000, ge=1)
     provider: Literal["openai", "anthropic"] | None = None
 
-    @field_validator("base_url")
-    @classmethod
-    def strip_trailing_slash(cls, value: str) -> str:
-        return value.rstrip("/")
+    _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
 
     @model_validator(mode="after")
     def infer_provider(self) -> JudgeConfig:
@@ -275,10 +273,7 @@ class PassThroughConfig(BaseModel):
     api_key: str
     model: str
 
-    @field_validator("base_url")
-    @classmethod
-    def strip_trailing_slash(cls, value: str) -> str:
-        return value.rstrip("/")
+    _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
 
 
 class OpenFusionConfig(BaseModel):

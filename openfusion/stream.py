@@ -76,26 +76,8 @@ def replay_cached_stream(
     created = int(time.time())
 
     async def gen() -> AsyncIterator[str]:
-        yield _sse_line(
-            None,
-            json.dumps(
-                _chunk(
-                    chunk_id=chunk_id,
-                    created=created,
-                    model=model,
-                    delta={"role": "assistant", "content": content},
-                    finish_reason=None,
-                )
-            ),
-        )
-        yield _sse_line(
-            None,
-            json.dumps(
-                _chunk(
-                    chunk_id=chunk_id, created=created, model=model, delta={}, finish_reason="stop"
-                )
-            ),
-        )
+        for line in _answer_and_stop_lines(chunk_id, created, model, content):
+            yield line
         if usage:
             yield _sse_line("usage", json.dumps({"total": usage, "cached": True}))
         yield _sse_line(None, "[DONE]")
@@ -255,18 +237,46 @@ def _chunk(
     }
 
 
-async def synthesize_and_stream(
+def _answer_and_stop_lines(chunk_id: str, created: int, model: str, content: str) -> list[str]:
+    """SSE lines for one full-content chunk followed by the terminal stop chunk."""
+    return [
+        _sse_line(
+            None,
+            json.dumps(
+                _chunk(
+                    chunk_id=chunk_id,
+                    created=created,
+                    model=model,
+                    delta={"role": "assistant", "content": content},
+                    finish_reason=None,
+                )
+            ),
+        ),
+        _sse_line(
+            None,
+            json.dumps(
+                _chunk(
+                    chunk_id=chunk_id, created=created, model=model, delta={}, finish_reason="stop"
+                )
+            ),
+        ),
+    ]
+
+
+async def _gather_panel_or_error(
     request_body: dict[str, Any],
     config: OpenFusionConfig,
     client: UpstreamClient,
     *,
     cancel_event: asyncio.Event | None = None,
-) -> AsyncIterator[str]:
-    """Gather the panel, synthesize with the judge, and emit OpenAI-compatible SSE."""
-    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
-    created = int(time.time())
-    model = config.fusion_model_name
+) -> AsyncIterator[str | PanelResult]:
+    """Run ``gather_with_progress``, turning a panel failure into an SSE error.
 
+    Yields progress/panel_answer SSE lines, then the ``PanelResult`` on success.
+    On failure, yields an error SSE line followed by ``[DONE]`` and ends without
+    ever yielding a ``PanelResult`` — callers should treat a loop that ends
+    without one as "the stream is already terminated, stop here".
+    """
     panel: PanelResult | None = None
     try:
         async for item in gather_with_progress(
@@ -287,6 +297,31 @@ async def synthesize_and_stream(
         return
     if panel is None:
         raise UpstreamError("Panel gather completed without a result")
+    yield panel
+
+
+async def synthesize_and_stream(
+    request_body: dict[str, Any],
+    config: OpenFusionConfig,
+    client: UpstreamClient,
+    *,
+    cancel_event: asyncio.Event | None = None,
+) -> AsyncIterator[str]:
+    """Gather the panel, synthesize with the judge, and emit OpenAI-compatible SSE."""
+    chunk_id = f"chatcmpl-{uuid.uuid4().hex[:24]}"
+    created = int(time.time())
+    model = config.fusion_model_name
+
+    panel: PanelResult | None = None
+    async for item in _gather_panel_or_error(
+        request_body, config, client, cancel_event=cancel_event
+    ):
+        if isinstance(item, PanelResult):
+            panel = item
+        else:
+            yield item
+    if panel is None:
+        return
 
     yield _progress(
         {
@@ -425,25 +460,15 @@ async def vote_and_stream(
     model = config.fusion_model_name
 
     panel: PanelResult | None = None
-    try:
-        async for item in gather_with_progress(
-            request_body, config, client, cancel_event=cancel_event
-        ):
-            if isinstance(item, PanelResult):
-                panel = item
-            else:
-                yield item
-    except Exception as exc:  # noqa: BLE001 - panel failed; report and end the stream
-        yield _sse_line(
-            None,
-            json.dumps(
-                {"error": {"message": str(exc), "type": "upstream_error", "code": "panel_error"}}
-            ),
-        )
-        yield _sse_line(None, "[DONE]")
-        return
+    async for item in _gather_panel_or_error(
+        request_body, config, client, cancel_event=cancel_event
+    ):
+        if isinstance(item, PanelResult):
+            panel = item
+        else:
+            yield item
     if panel is None:
-        raise UpstreamError("Panel gather completed without a result")
+        return
     content, vote_meta = majority_vote(panel)
 
     yield _sse_line(
@@ -459,24 +484,8 @@ async def vote_and_stream(
         ),
     )
 
-    yield _sse_line(
-        None,
-        json.dumps(
-            _chunk(
-                chunk_id=chunk_id,
-                created=created,
-                model=model,
-                delta={"role": "assistant", "content": content},
-                finish_reason=None,
-            )
-        ),
-    )
-    yield _sse_line(
-        None,
-        json.dumps(
-            _chunk(chunk_id=chunk_id, created=created, model=model, delta={}, finish_reason="stop")
-        ),
-    )
+    for line in _answer_and_stop_lines(chunk_id, created, model, content):
+        yield line
 
     usage_payload = _build_usage_payload(panel, None)
     if usage_payload:
@@ -577,25 +586,15 @@ async def ranked_and_stream(
     model = config.fusion_model_name
 
     panel: PanelResult | None = None
-    try:
-        async for item in gather_with_progress(
-            request_body, config, client, cancel_event=cancel_event
-        ):
-            if isinstance(item, PanelResult):
-                panel = item
-            else:
-                yield item
-    except Exception as exc:  # noqa: BLE001 - panel failed; report and end the stream
-        yield _sse_line(
-            None,
-            json.dumps(
-                {"error": {"message": str(exc), "type": "upstream_error", "code": "panel_error"}}
-            ),
-        )
-        yield _sse_line(None, "[DONE]")
-        return
+    async for item in _gather_panel_or_error(
+        request_body, config, client, cancel_event=cancel_event
+    ):
+        if isinstance(item, PanelResult):
+            panel = item
+        else:
+            yield item
     if panel is None:
-        raise UpstreamError("Panel gather completed without a result")
+        return
     content, meta = await pick_best(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
     )
@@ -611,24 +610,8 @@ async def ranked_and_stream(
             }
         ),
     )
-    yield _sse_line(
-        None,
-        json.dumps(
-            _chunk(
-                chunk_id=chunk_id,
-                created=created,
-                model=model,
-                delta={"role": "assistant", "content": content},
-                finish_reason=None,
-            )
-        ),
-    )
-    yield _sse_line(
-        None,
-        json.dumps(
-            _chunk(chunk_id=chunk_id, created=created, model=model, delta={}, finish_reason="stop")
-        ),
-    )
+    for line in _answer_and_stop_lines(chunk_id, created, model, content):
+        yield line
     usage_payload = _build_usage_payload(panel, None)
     if usage_payload:
         yield _sse_line("usage", json.dumps(usage_payload))
