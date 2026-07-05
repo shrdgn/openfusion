@@ -12,4 +12,8 @@ export default defineConfig({
     outDir: path.resolve(__dirname, "../openfusion/static/playground"),
     emptyOutDir: true,
   },
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/lib/__tests__/setup.ts"],
+  },
 });
