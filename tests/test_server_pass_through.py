@@ -235,3 +235,60 @@ async def test_openfusion_rejects_judge_over_limit(
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "max_tokens_exceeds_limit"
     assert not route.called
+
+
+async def test_non_fusion_model_streams(client: httpx.AsyncClient, mock_router) -> None:
+    """A streaming request for a non-fusion model is forwarded as SSE (`_pass_through`)."""
+    body = (
+        'data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"solo "},"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{"content":"answer"},"finish_reason":"stop"}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+    route = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(200, text=body, headers={"content-type": "text/event-stream"})
+    )
+
+    response = await client.post(
+        "/v1/chat/completions",
+        json={
+            "model": "pass-model",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": True,
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert "solo " in response.text
+    assert "answer" in response.text
+    assert "[DONE]" in response.text
+    assert json.loads(route.calls.last.request.content)["stream"] is True
+
+
+async def test_pass_through_stream_raises_when_upstream_not_streaming(app) -> None:
+    """`_pass_through` raises an UpstreamError if a streaming call doesn't return a stream.
+
+    This defensive branch (server.py's `if not hasattr(result, "__aiter__")`) isn't
+    reachable via the real HTTP client, which always returns an async iterator for
+    `stream=True` -- so it's exercised here via monkeypatching `chat_completion`.
+    """
+
+    async def _mock_chat_completion(*_args, **_kwargs):
+        return {"choices": [{"message": {"content": "not a stream"}}]}
+
+    app.state.upstream_client.chat_completion = _mock_chat_completion
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        response = await http_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "pass-model",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+        )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["message"] == "Expected streaming upstream response"
