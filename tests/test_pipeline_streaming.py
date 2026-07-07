@@ -13,7 +13,6 @@ from __future__ import annotations
 import time
 
 import httpx
-import pytest
 
 from openfusion.config import (
     JudgeConfig,
@@ -26,7 +25,6 @@ from openfusion.config import (
     Strategy,
     TimeoutsConfig,
 )
-from openfusion.errors import UpstreamError
 from openfusion.server import _pipeline_stream, create_app
 from openfusion.upstream import UpstreamClient
 
@@ -173,17 +171,18 @@ async def test_pipeline_stream_chains_solo_steps_and_injects_prior_output(mock_r
     assert seen_systems[1] == "Polish this: draft-text"
 
 
-async def test_pipeline_stream_upstream_failure_propagates_and_records_error(
+async def test_pipeline_stream_upstream_failure_degrades_to_sse_error_chunk(
     mock_router, monkeypatch
 ) -> None:
-    """An upstream failure mid-pipeline-stream propagates rather than degrading gracefully.
+    """An upstream failure mid-pipeline-stream ends the stream gracefully.
 
-    Unlike vote_and_stream/ranked_and_stream (which catch a panel failure and
-    emit an SSE error chunk + [DONE]), pipeline_and_stream has no such handling:
-    an UpstreamError raised by run_pipeline propagates out of the generator.
-    Exercises _pipeline_stream's except/finally branches in server.py: the
-    outcome is recorded as "error" and the disconnect-watch task is cancelled
-    and awaited even though the client never actually disconnected.
+    Matches vote_and_stream/ranked_and_stream/synthesize_and_stream: an
+    UpstreamError raised while running the pipeline is caught by
+    pipeline_and_stream and turned into an SSE error chunk followed by
+    [DONE], instead of crashing the response after headers are already
+    sent. Exercises _pipeline_stream's finally branch in server.py too: the
+    disconnect-watch task is cancelled and awaited even though the client
+    never actually disconnected.
     """
     cfg = _pipeline_config([PipelineStepConfig(name="answer", use=PipelineStepUse.SOLO)])
     upstream_client = UpstreamClient()
@@ -205,9 +204,13 @@ async def test_pipeline_stream_upstream_failure_propagates_and_records_error(
         upstream_client,
         started=time.perf_counter(),
     )
-    with pytest.raises(UpstreamError):
-        async for _ in response.body_iterator:
-            pass
+    body = "".join([line async for line in response.body_iterator])
     await upstream_client.aclose()
 
-    assert recorded == [("pipeline", "error")]
+    assert '"code": "pipeline_stream_error"' in body
+    assert body.rstrip().endswith("data: [DONE]")
+    # No exception escaped event_stream(), so the outcome is "success" -- the
+    # same (imperfect but established) semantics as _fusion_stream, where an
+    # SSE-level error chunk from a caught panel/judge failure isn't visible to
+    # _record_request either.
+    assert recorded == [("pipeline", "success")]

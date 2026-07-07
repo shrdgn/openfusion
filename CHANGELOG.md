@@ -34,6 +34,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - Router SOLO requests now forward the configured single model upstream instead
   of the literal string `"openfusion"`.
+- A `pipeline`-strategy streaming request no longer crashes the SSE response on
+  an upstream failure mid-pipeline. `pipeline_and_stream` now catches the
+  failure and emits an SSE error chunk + `[DONE]`, matching how
+  `vote_and_stream`/`ranked_and_stream`/`synthesize_and_stream` already
+  degrade a panel or judge failure after the response has started.
 
 ## [0.1.0] — 2026-06-17
 
