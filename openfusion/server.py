@@ -45,10 +45,11 @@ from openfusion.errors import (
 from openfusion.estimate import build_estimate
 from openfusion.limits import RequestLimiter
 from openfusion.metrics import METRICS
+from openfusion.outcomes import OUTCOMES
 from openfusion.overrides import apply_overrides, fill_missing_keys, is_missing_api_key
 from openfusion.pricing import get_prices
 from openfusion.responsecache import ResponseCache, cache_key
-from openfusion.router import RouteDecision, route_request
+from openfusion.router import RouteDecision, prompt_tier, route_request
 from openfusion.stream import (
     buffer_pipeline,
     buffer_ranked,
@@ -167,6 +168,14 @@ def _record_request(route: str, outcome: str, started: float) -> None:
     )
 
 
+def _record_outcome(route: str, outcome: str, body: dict[str, Any]) -> None:
+    """Record routing outcome to the learning store for future routing nudges."""
+    from openfusion.router import _user_text  # local import avoids circular dependency
+
+    tier = prompt_tier(_user_text(body))
+    OUTCOMES.record(route, tier, success=(outcome == "success"))
+
+
 # A host app can supply a per-request config (e.g. the authenticated user's key
 # and recipe) instead of one app-wide config — see docs/EMBEDDING.md.
 ConfigResolver = Callable[[Request], Awaitable[OpenFusionConfig]]
@@ -238,6 +247,15 @@ def create_app(
             METRICS.render_prometheus(),
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
+
+    @app.get("/v1/routing/outcomes")
+    async def routing_outcomes(
+        authorization: str | None = Header(default=None),
+        cfg: OpenFusionConfig = Depends(get_config),
+    ) -> dict[str, Any]:
+        """Return the current routing outcome EMA snapshot (for observability)."""
+        _validate_gateway_auth(cfg, authorization)
+        return {"outcomes": OUTCOMES.snapshot()}
 
     @app.get("/v1/config")
     async def active_config(
@@ -342,6 +360,7 @@ def create_app(
         route_label = "fusion"
         limiter: RequestLimiter = app.state.limiter
         acquired = False
+        body: dict[str, Any] = {}
         try:
             _validate_gateway_auth(cfg, authorization)
             limiter.check_rate(_client_key(authorization))
@@ -385,7 +404,7 @@ def create_app(
             )
             routed: PassThroughConfig | None = None
             if wants_fusion and cfg.router.enabled:
-                decision, route_model = await route_request(body, cfg.router, client)
+                decision, route_model = await route_request(body, cfg.router, client, OUTCOMES)
                 if decision == RouteDecision.SOLO:
                     wants_fusion = False
                     routed = _routed_pass_through(cfg, route_model)
@@ -415,6 +434,7 @@ def create_app(
                 )
                 if not stream:
                     _record_request(route_label, "success", started)
+                    _record_outcome(route_label, "success", body)
                 return _attach_release(response, limiter, acquired)
 
             if cfg.aggregator in (Aggregator.JUDGE, Aggregator.RANKED):
@@ -472,10 +492,12 @@ def create_app(
                 payload.get("usage"),
             )
             _record_request(route_label, "success", started)
+            _record_outcome(route_label, "success", body)
             return _attach_release(JSONResponse(content=payload), limiter, acquired)
         except OpenFusionError as exc:
             limiter.release(acquired)
             _record_request(route_label, "error", started)
+            _record_outcome(route_label, "error", body)
             return _error_response(exc)
         except json.JSONDecodeError as exc:
             limiter.release(acquired)
@@ -484,6 +506,7 @@ def create_app(
         except Exception as exc:  # noqa: BLE001
             limiter.release(acquired)
             _record_request(route_label, "error", started)
+            _record_outcome(route_label, "error", body)
             return _error_response(UpstreamError(str(exc)))
 
     return app
@@ -550,6 +573,7 @@ async def _pass_through(
                 raise
             finally:
                 _record_request("pass_through", outcome, started)
+                _record_outcome("pass_through", outcome, body)
 
         return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -631,6 +655,7 @@ async def _fusion_stream(
             with contextlib.suppress(asyncio.CancelledError):
                 await task
             _record_request("fusion", outcome, started)
+            _record_outcome("fusion", outcome, body)
 
     lines = event_stream()
     if on_complete is not None:
