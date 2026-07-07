@@ -34,6 +34,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - Router SOLO requests now forward the configured single model upstream instead
   of the literal string `"openfusion"`.
+- `app.state.runtime_api_keys` (the UI-set-key store behind `/v1/runtime/api-key`)
+  is now bounded and LRU-evicted at 1024 entries. Previously it grew without
+  limit, and since that endpoint is reachable without a gateway token when no
+  `gateway.api_keys` allowlist is set (the zero-config default), a client
+  sending many distinct `Authorization` headers could exhaust server memory.
 
 ## [0.1.0] — 2026-06-17
 

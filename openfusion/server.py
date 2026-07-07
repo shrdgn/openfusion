@@ -7,6 +7,7 @@ import contextlib
 import hmac
 import json
 import time
+from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -128,6 +129,21 @@ def _client_key(authorization: str | None) -> str:
     return "anonymous"
 
 
+# /v1/runtime/api-key is reachable without a gateway token whenever no
+# gateway.api_keys allowlist is configured (the zero-config quick-start
+# default). Without a cap, a client sending distinct Authorization headers
+# could grow app.state.runtime_api_keys without bound. This mirrors
+# ResponseCache's LRU eviction to keep that dict's memory bounded.
+RUNTIME_API_KEYS_MAX = 1024
+
+
+def _set_runtime_api_key(store: OrderedDict[str, str], client_key: str, api_key: str) -> None:
+    store[client_key] = api_key
+    store.move_to_end(client_key)
+    while len(store) > RUNTIME_API_KEYS_MAX:
+        store.popitem(last=False)
+
+
 def _attach_release(response: Any, limiter: RequestLimiter, acquired: bool) -> Any:
     """Release the concurrency slot after the response (incl. stream) finishes."""
     if acquired and getattr(response, "background", None) is None:
@@ -202,7 +218,8 @@ def create_app(
     app.state.response_cache = ResponseCache(rc.ttl_seconds, rc.max_entries)
     # Keyed by the caller's gateway token (or "anonymous") so one client's UI-set
     # key is never used for another client's requests. See _client_key().
-    app.state.runtime_api_keys = {}
+    # Bounded (RUNTIME_API_KEYS_MAX) and LRU-evicted; see _set_runtime_api_key.
+    app.state.runtime_api_keys = OrderedDict()
     app.mount(
         "/playground",
         StaticFiles(directory=PLAYGROUND_DIR, html=True),
@@ -291,7 +308,7 @@ def create_app(
         key = str(body.get("api_key", "")).strip()
         client_key = _client_key(authorization)
         if key:
-            app.state.runtime_api_keys[client_key] = key
+            _set_runtime_api_key(app.state.runtime_api_keys, client_key, key)
         else:
             app.state.runtime_api_keys.pop(client_key, None)
         return {"ok": True, "api_key_set": bool(key)}

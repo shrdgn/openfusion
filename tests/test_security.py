@@ -258,6 +258,37 @@ async def test_runtime_api_key_is_scoped_per_client() -> None:
     assert cfg_b["api_key_set"] is False
 
 
+@pytest.mark.asyncio
+async def test_runtime_api_keys_store_is_bounded() -> None:
+    """app.state.runtime_api_keys must not grow without bound.
+
+    With no gateway allowlist configured, /v1/runtime/api-key is reachable
+    without authorization, and _client_key() uses the caller-supplied
+    Authorization header verbatim as the dict key. Before this was bounded, a
+    client sending many distinct Authorization headers could grow this dict
+    forever — an unbounded-memory DoS in the (default) zero-config mode.
+    """
+    from openfusion.server import RUNTIME_API_KEYS_MAX
+
+    cfg = _base_config(allow_ui_api_key=True)
+    app = create_app(cfg)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        for i in range(RUNTIME_API_KEYS_MAX + 50):
+            res = await client.post(
+                "/v1/runtime/api-key",
+                headers={"Authorization": f"Bearer client-{i}"},
+                json={"api_key": f"sk-{i}"},
+            )
+            assert res.status_code == 200
+    await app.state.upstream_client.aclose()
+
+    assert len(app.state.runtime_api_keys) == RUNTIME_API_KEYS_MAX
+    # Oldest clients were evicted first (LRU); the most recent survive.
+    assert "client-0" not in app.state.runtime_api_keys
+    assert f"client-{RUNTIME_API_KEYS_MAX + 49}" in app.state.runtime_api_keys
+
+
 # ---------------------------------------------------------------------------
 # No gateway configured → all endpoints are open
 # ---------------------------------------------------------------------------
