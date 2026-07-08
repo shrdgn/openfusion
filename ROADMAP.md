@@ -18,10 +18,12 @@ Directional, not a promise. Issues and PRs welcome on any of these.
   pricing); shown in the playground as you type.
 - **Classifier model routing** — `mode: model` + `route_models` lets one
   classifier call pick FUSE or the specific model (`router.route_request`).
+- **Routing that learns from outcomes** — an in-process EMA of fuse/solo success
+  rate per prompt tier (`openfusion.outcomes.OutcomeStore`) nudges the heuristic
+  router once either side has enough observations; read-only at
+  `GET /v1/routing/outcomes`.
 
 ## Next
-- **Routing that learns from outcomes** — record which model/recipe did well and
-  bias future routing (the classifier picker landed; this is the learning loop).
 - **Live `$` pricing in the estimate for non-OpenRouter providers** and a
   CLI cost preview (`openfusion ask --estimate`).
 

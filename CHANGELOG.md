@@ -7,6 +7,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Routing learning loop** — the heuristic router (`router.mode: heuristic`) now tracks an
+  in-process EMA of fuse-vs-solo success rate per prompt tier (`openfusion.outcomes.OutcomeStore`)
+  and nudges future decisions toward whichever has been winning once either side has enough
+  observations. In-memory only (resets on restart); read-only snapshot at
+  `GET /v1/routing/outcomes`.
 - **Classifier model routing** — with `router.mode: model` + `route_models`, one classifier call
   picks FUSE *or the specific model* for the prompt (a single decision instead of two), falling back
   to the difficulty heuristic on any error. Unified entry point `router.route_request`.
