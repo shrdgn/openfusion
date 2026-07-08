@@ -387,13 +387,22 @@ def test_member_failure_and_response_are_plain_dataclasses() -> None:
 async def test_debate_loop_stops_early_when_cancelled_between_rounds(mock_router) -> None:
     """Cancellation observed between debate rounds skips remaining rounds cleanly."""
     cancel_event = asyncio.Event()
+    revision_calls = 0
 
     def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal revision_calls
         payload = json.loads(request.content)
         text = json.dumps(payload["messages"])
         if "other independent experts" in text:
-            # Cancellation arrives (e.g. client disconnect) while round 1 revises.
-            cancel_event.set()
+            revision_calls += 1
+            if revision_calls == 2:
+                # Cancellation arrives (e.g. client disconnect) once both round-1
+                # revisions are already in flight, so it can only take effect
+                # before round 2. Gating on the second dispatch (rather than the
+                # first) keeps this deterministic: _call_member's cancellation
+                # check runs before a request is ever sent, so by the time this
+                # handler sees a request at all, that request already passed it.
+                cancel_event.set()
             return httpx.Response(200, json=_completion("revised"))
         return httpx.Response(200, json=_completion("first"))
 
