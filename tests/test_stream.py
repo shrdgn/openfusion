@@ -9,6 +9,7 @@ import pytest
 
 from openfusion.config import (
     Aggregator,
+    AnalysisConfig,
     JudgeConfig,
     OpenFusionConfig,
     PanelMember,
@@ -16,7 +17,11 @@ from openfusion.config import (
     Strategy,
     TimeoutsConfig,
 )
+from openfusion.errors import UpstreamError
 from openfusion.stream import (
+    _gather_panel_or_error,
+    buffer_synthesis,
+    cached_response_dict,
     capture_stream,
     ranked_and_stream,
     synthesize_and_stream,
@@ -372,3 +377,269 @@ async def test_capture_stream_calls_on_complete_on_clean_stream() -> None:
     content, usage = completed[0]
     assert content == "Hello world"
     assert usage == usage_obj
+
+
+@pytest.mark.asyncio
+async def test_capture_stream_ignores_malformed_json_data_line() -> None:
+    """A non-JSON `data:` line (e.g. a truncated/corrupt chunk) must not crash the stream.
+
+    It's skipped for accumulation purposes but the line still passes through and
+    on_complete still fires for the rest of the (otherwise clean) stream.
+    """
+    completed: list[tuple[str, object]] = []
+
+    async def on_complete(content: str, usage: object) -> None:
+        completed.append((content, usage))
+
+    sse = (
+        'data: {"choices":[{"delta":{"role":"assistant","content":"ok "}}]}\n\n'
+        "data: {not valid json\n\n"
+        'data: {"choices":[{"delta":{"content":"done"}}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    async def _source():
+        for block in sse.split("\n\n"):
+            if block.strip():
+                yield block + "\n\n"
+
+    lines = [line async for line in capture_stream(_source(), on_complete)]
+    assert any("not valid json" in line for line in lines)  # passed through untouched
+    assert len(completed) == 1
+    content, usage = completed[0]
+    assert content == "ok done"  # malformed line contributed nothing, but didn't break accumulation
+    assert usage is None
+
+
+def test_cached_response_dict_includes_usage_when_present() -> None:
+    usage = {"prompt_tokens": 3, "completion_tokens": 2, "total_tokens": 5}
+    response = cached_response_dict("hello", usage, "openfusion")
+    assert response["usage"] == usage
+    assert response["cached"] is True
+
+
+def test_cached_response_dict_omits_usage_when_none() -> None:
+    response = cached_response_dict("hello", None, "openfusion")
+    assert "usage" not in response
+
+
+@pytest.mark.asyncio
+async def test_gather_panel_or_error_raises_when_no_result_yielded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Defensive branch: if gather_with_progress ends without a PanelResult or an
+    exception, _gather_panel_or_error must raise rather than silently produce no
+    panel (which would otherwise hang downstream consumers expecting one)."""
+
+    async def _fake_gather_with_progress(*_args, **_kwargs):
+        yield "data: progress-only, no result\n\n"
+
+    monkeypatch.setattr("openfusion.stream.gather_with_progress", _fake_gather_with_progress)
+
+    config = _panel_config(Aggregator.JUDGE)
+    client = UpstreamClient()
+    with pytest.raises(UpstreamError, match="Panel gather completed without a result"):
+        async for _ in _gather_panel_or_error(
+            {"messages": [{"role": "user", "content": "hi"}]}, config, client
+        ):
+            pass
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_synthesize_and_stream_ends_cleanly_on_panel_failure(mock_router) -> None:
+    """Unlike vote/ranked (tested above), synthesize_and_stream's own
+    'panel is None -> return' branch after a panel failure was untested."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "upstream down"}})
+    )
+    config = _panel_config(Aggregator.JUDGE)
+    client = UpstreamClient()
+    chunks = [line async for line in synthesize_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    assert events[-1][1] == "[DONE]"
+    error_events = [
+        json.loads(data)
+        for event, data in events
+        if event is None and data != "[DONE]"
+        if "error" in json.loads(data)
+    ]
+    assert error_events, "expected an SSE error chunk (synthesize)"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_and_stream_sends_error_chunk_on_judge_failure(mock_router) -> None:
+    """A panel that succeeds but a judge call that fails to stream must still
+    degrade to an SSE error chunk + [DONE], not crash the response after it's
+    already started (the judge_stream_error branch)."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer A"}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer B"}}]}),
+            # Judge call: streaming request fails upstream mid-request, raising inside
+            # synthesize()'s `async for chunk in stream:` loop.
+            httpx.Response(500, json={"error": {"message": "judge down"}}),
+        ]
+    )
+    config = _panel_config(Aggregator.JUDGE)
+    client = UpstreamClient()
+    chunks = [line async for line in synthesize_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    assert events[-1][1] == "[DONE]"
+    error_events = [
+        json.loads(data)
+        for event, data in events
+        if event is None and data != "[DONE]"
+        if "error" in json.loads(data)
+    ]
+    assert error_events, "expected an SSE error chunk (judge_stream_error)"
+    assert error_events[0]["error"]["code"] == "judge_stream_error"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_and_stream_skips_empty_usage_only_chunk(mock_router) -> None:
+    """A judge SSE chunk with no content and no finish_reason (some providers send a
+    bare usage frame before the closing chunk) must not emit an empty content chunk."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer A"}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer B"}}]}),
+            httpx.Response(
+                200,
+                text=(
+                    'data: {"choices":[{"delta":{},"finish_reason":null}],'
+                    '"usage":{"prompt_tokens":1,"completion_tokens":0,"total_tokens":1}}\n\n'
+                    'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n'
+                    "data: [DONE]\n\n"
+                ),
+                headers={"content-type": "text/event-stream"},
+            ),
+        ]
+    )
+    config = _panel_config(Aggregator.JUDGE)
+    client = UpstreamClient()
+    chunks = [line async for line in synthesize_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    content_events = [
+        json.loads(data) for event, data in events if event is None and data != "[DONE]"
+    ]
+    # No content chunk carries an empty/missing delta.content before the real "ok" one.
+    deltas = [c["choices"][0]["delta"].get("content") for c in content_events]
+    assert [d for d in deltas if d] == ["ok"]
+
+
+@pytest.mark.asyncio
+async def test_synthesize_and_stream_emits_analysis_and_usage(mock_router) -> None:
+    """With analysis.emit, the judge's post-sentinel JSON surfaces as a separate
+    `event: analysis` SSE event, and judge usage flows into the final usage payload."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer A"}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer B"}}]}),
+            httpx.Response(
+                200,
+                text=(
+                    'data: {"choices":[{"delta":{"content":"final'
+                    '===ANALYSIS==={\\"consensus\\": \\"agree\\"}"},'
+                    '"finish_reason":"stop"}],'
+                    '"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\n'
+                    "data: [DONE]\n\n"
+                ),
+                headers={"content-type": "text/event-stream"},
+            ),
+        ]
+    )
+    config = _panel_config(Aggregator.JUDGE)
+    config.analysis = AnalysisConfig(emit=True)
+    client = UpstreamClient()
+    chunks = [line async for line in synthesize_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    analysis_events = [json.loads(data) for event, data in events if event == "analysis"]
+    assert analysis_events == [{"consensus": "agree"}]
+    content_events = [data for event, data in events if event is None and data != "[DONE]"]
+    assert any('"final"' in data or "final" in data for data in content_events)
+    usage_events = [json.loads(data) for event, data in events if event == "usage"]
+    assert usage_events, "expected a usage SSE event"
+
+
+@pytest.mark.asyncio
+async def test_synthesize_and_stream_flushes_trailing_text_when_no_sentinel(
+    mock_router,
+) -> None:
+    """analysis.emit is on, but the judge never emitted the sentinel (e.g. a short
+    answer). The buffered tail must still be flushed as a content chunk, and no
+    analysis event should be emitted."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer A"}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer B"}}]}),
+            httpx.Response(
+                200,
+                text=(
+                    'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}\n\n'
+                    "data: [DONE]\n\n"
+                ),
+                headers={"content-type": "text/event-stream"},
+            ),
+        ]
+    )
+    config = _panel_config(Aggregator.JUDGE)
+    config.analysis = AnalysisConfig(emit=True)
+    client = UpstreamClient()
+    chunks = [line async for line in synthesize_and_stream(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )]
+    await client.aclose()
+
+    events = _parse_sse("".join(chunks))
+    analysis_events = [event for event, _ in events if event == "analysis"]
+    assert analysis_events == []  # no sentinel -> nothing to emit as analysis
+    content_events = [data for event, data in events if event is None and data != "[DONE]"]
+    assert any("hi" in data for data in content_events)  # short answer still flushed as content
+
+
+@pytest.mark.asyncio
+async def test_buffer_synthesis_includes_analysis_in_response(mock_router) -> None:
+    """The non-streaming judge path also splits out and attaches the analysis payload."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        side_effect=[
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer A"}}]}),
+            httpx.Response(200, json={"choices": [{"message": {"content": "answer B"}}]}),
+            httpx.Response(
+                200,
+                text=(
+                    'data: {"choices":[{"delta":{"content":"final'
+                    '===ANALYSIS==={\\"consensus\\": \\"agree\\"}"},'
+                    '"finish_reason":"stop"}]}\n\n'
+                    "data: [DONE]\n\n"
+                ),
+                headers={"content-type": "text/event-stream"},
+            ),
+        ]
+    )
+    config = _panel_config(Aggregator.JUDGE)
+    config.analysis = AnalysisConfig(emit=True)
+    client = UpstreamClient()
+    response = await buffer_synthesis(
+        {"messages": [{"role": "user", "content": "hi"}]}, config, client
+    )
+    await client.aclose()
+
+    assert response["choices"][0]["message"]["content"] == "final"
+    assert response["analysis"] == {"consensus": "agree"}
