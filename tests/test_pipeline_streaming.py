@@ -10,6 +10,7 @@ for every pipeline-strategy request.
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 import httpx
@@ -26,6 +27,7 @@ from openfusion.config import (
     TimeoutsConfig,
 )
 from openfusion.server import _pipeline_stream, create_app
+from openfusion.stream import buffer_pipeline, pipeline_and_stream
 from openfusion.upstream import UpstreamClient
 
 
@@ -214,3 +216,60 @@ async def test_pipeline_stream_upstream_failure_degrades_to_sse_error_chunk(
     # SSE-level error chunk from a caught panel/judge failure isn't visible to
     # _record_request either.
     assert recorded == [("pipeline", "success")]
+
+
+async def test_pipeline_stream_stops_on_cancel_event(mock_router) -> None:
+    """A cancel_event set before/during the run stops pipeline_and_stream from
+    yielding further step content -- it still closes out with a terminal chunk
+    and [DONE] rather than leaving the SSE response hanging."""
+    cfg = _pipeline_config([PipelineStepConfig(name="answer", use=PipelineStepUse.SOLO)])
+    upstream_client = UpstreamClient()
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=_sse(
+            '{"choices":[{"delta":{"role":"assistant","content":"hel"},"finish_reason":null}]}',
+            '{"choices":[{"delta":{"content":"lo"},"finish_reason":"stop"}]}',
+        )
+    )
+
+    cancel_event = asyncio.Event()
+    cancel_event.set()  # already cancelled before the first chunk is consumed
+    chunks = [
+        line
+        async for line in pipeline_and_stream(
+            {"messages": [{"role": "user", "content": "hi"}]},
+            cfg,
+            upstream_client,
+            cancel_event=cancel_event,
+        )
+    ]
+    await upstream_client.aclose()
+
+    body = "".join(chunks)
+    # No step content made it out -- the loop broke on the first cancellation check.
+    assert '"content": "hel"' not in body
+    assert '"content": "lo"' not in body
+    assert body.rstrip().endswith("data: [DONE]")
+
+
+async def test_buffer_pipeline_captures_usage(mock_router) -> None:
+    """buffer_pipeline (the non-streaming path) must carry the last usage seen
+    from run_pipeline into the completion response, not just the joined text."""
+    cfg = _pipeline_config([PipelineStepConfig(name="answer", use=PipelineStepUse.SOLO)])
+    upstream_client = UpstreamClient()
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=_sse(
+            '{"choices":[{"delta":{"role":"assistant","content":"foo"},"finish_reason":null}]}',
+            '{"choices":[{"delta":{"content":"bar"},"finish_reason":"stop"}],'
+            '"usage":{"total_tokens":9}}',
+        )
+    )
+
+    response = await buffer_pipeline(
+        {"messages": [{"role": "user", "content": "hi"}]}, cfg, upstream_client
+    )
+    await upstream_client.aclose()
+
+    assert response["choices"][0]["message"]["content"] == "foobar"
+    assert response["usage"] == {"total_tokens": 9}
