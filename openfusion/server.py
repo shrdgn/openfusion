@@ -591,10 +591,11 @@ async def _pass_through(
     )
 
     payload = {**body, "model": chosen}
-    result = await client.chat_completion(
+    result = await client.chat_completion_with_fallback(
         member,
         payload,
         stream=stream,
+        fallback=config.fallback,
         phase=RequestPhase.PASS_THROUGH,
     )
 

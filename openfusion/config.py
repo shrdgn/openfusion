@@ -318,6 +318,34 @@ class ProviderConfig(BaseModel):
     _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
 
 
+class FallbackEntry(BaseModel):
+    """One alternative target in a model fallback chain."""
+
+    base_url: str
+    api_key: str
+    model: str
+    provider: Literal["openai", "anthropic"] | None = None
+
+    _normalize_base_url = field_validator("base_url")(_strip_trailing_slash)
+
+    @model_validator(mode="after")
+    def infer_provider(self) -> FallbackEntry:
+        if self.provider is None:
+            self.provider = _infer_provider(self.base_url)
+        return self
+
+
+class FallbackConfig(BaseModel):
+    """Per-model ordered list of fallback targets tried when the primary call fails.
+
+    Key is the model name as used in the request (e.g. ``anthropic/claude-sonnet-4-5``
+    or the bare model name). Entries are tried in order; the first available
+    (not DOWN) one is used.
+    """
+
+    chains: dict[str, list[FallbackEntry]] = Field(default_factory=dict)
+
+
 class OpenFusionConfig(BaseModel):
     preset: Preset | None = None
     strategy: Strategy = Strategy.SELF_FUSION
@@ -338,6 +366,7 @@ class OpenFusionConfig(BaseModel):
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     pass_through: PassThroughConfig | None = None
     providers: list[ProviderConfig] = Field(default_factory=list)
+    fallback: FallbackConfig = Field(default_factory=FallbackConfig)
     fusion_model_name: str = "openfusion"
     # Allow clients to override panel/judge/preset/tools per request via the
     # `openfusion` request field (used by the playground). Off by default: when

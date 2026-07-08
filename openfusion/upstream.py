@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-from openfusion.config import JudgeConfig, PanelMember
+from openfusion.config import FallbackConfig, FallbackEntry, JudgeConfig, PanelMember
 from openfusion.errors import UpstreamError
 from openfusion.health import HEALTH
 from openfusion.metrics import METRICS
@@ -40,6 +40,68 @@ class UpstreamClient:
     async def aclose(self) -> None:
         if self._owns_client:
             await self._client.aclose()
+
+    async def chat_completion_with_fallback(
+        self,
+        member: PanelMember | JudgeConfig,
+        body: dict[str, Any],
+        *,
+        stream: bool,
+        fallback: FallbackConfig | None = None,
+        timeout: float | None = None,
+        phase: str | None = None,
+    ) -> dict[str, Any] | AsyncIterator[dict[str, Any]]:
+        """Call ``member``; on failure try each fallback entry in order.
+
+        Fallback entries for ``member.model`` are looked up from ``fallback.chains``.
+        Entries whose provider is currently DOWN (per :data:`HEALTH`) are skipped.
+        If all attempts fail, the last exception is re-raised.
+        """
+        candidates: list[PanelMember | JudgeConfig | FallbackEntry] = [member]  # type: ignore[list-item]
+        if fallback:
+            chain = fallback.chains.get(member.model, [])
+            candidates.extend(chain)
+
+        last_exc: BaseException | None = None
+        for candidate in candidates:
+            provider_id = _provider_id_from_url(candidate.base_url)
+            if last_exc is not None and not HEALTH.is_available(provider_id):
+                LOGGER.warning(
+                    "fallback: skipping provider %s (status=%s)",
+                    provider_id, HEALTH.status(provider_id).value,
+                )
+                continue
+            try:
+                # Build a PanelMember-compatible target for each fallback entry
+                call_target: PanelMember | JudgeConfig
+                if isinstance(candidate, FallbackEntry):
+                    call_target = PanelMember(
+                        base_url=candidate.base_url,
+                        api_key=candidate.api_key,
+                        model=candidate.model,
+                        provider=candidate.provider,
+                    )
+                else:
+                    call_target = candidate
+                return await self.chat_completion(
+                    call_target, body, stream=stream, timeout=timeout, phase=phase
+                )
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                if isinstance(candidate, FallbackEntry):
+                    LOGGER.warning(
+                        "fallback: primary/fallback call to %s failed (%s), trying next",
+                        provider_id, exc,
+                    )
+                else:
+                    LOGGER.warning(
+                        "fallback: primary call to %s failed (%s), trying fallbacks",
+                        provider_id, exc,
+                    )
+
+        if last_exc is not None:
+            raise last_exc
+        raise UpstreamError("No candidates available")
 
     async def chat_completion(
         self,
