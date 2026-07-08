@@ -663,17 +663,29 @@ async def pipeline_and_stream(
             )
         )
 
-    async for delta_text, usage, reason in run_pipeline(
-        request_body, config, client, timeout=config.timeouts.judge_seconds
-    ):
-        if cancel_event is not None and cancel_event.is_set():
-            break
-        if delta_text:
-            yield _sse_line(None, _content_chunk(delta_text, None))
-        if usage:
-            last_usage = usage
-        if reason:
-            finish_reason = reason
+    try:
+        async for delta_text, usage, reason in run_pipeline(
+            request_body, config, client, timeout=config.timeouts.judge_seconds
+        ):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            if delta_text:
+                yield _sse_line(None, _content_chunk(delta_text, None))
+            if usage:
+                last_usage = usage
+            if reason:
+                finish_reason = reason
+    except Exception as exc:  # noqa: BLE001 - stream error chunk after 200
+        error_payload = {
+            "error": {
+                "message": str(exc),
+                "type": "upstream_error",
+                "code": "pipeline_stream_error",
+            }
+        }
+        yield _sse_line(None, json.dumps(error_payload))
+        yield _sse_line(None, "[DONE]")
+        return
 
     yield _sse_line(None, _content_chunk("", finish_reason or "stop"))
     if last_usage:

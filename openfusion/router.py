@@ -15,6 +15,7 @@ from typing import Any
 
 from openfusion.config import RouteModel, RouterConfig, RouterMode, Tier
 from openfusion.cost import RequestPhase
+from openfusion.outcomes import OutcomeStore
 from openfusion.upstream import UpstreamClient
 
 _log = logging.getLogger(__name__)
@@ -104,8 +105,17 @@ def select_model(body: dict[str, Any], config: RouterConfig) -> RouteModel | Non
     return config.route_models[0]
 
 
-def route(body: dict[str, Any], config: RouterConfig) -> RouteDecision:
-    """Return whether to FUSE or answer SOLO for this request."""
+def route(
+    body: dict[str, Any],
+    config: RouterConfig,
+    outcomes: OutcomeStore | None = None,
+) -> RouteDecision:
+    """Return whether to FUSE or answer SOLO for this request.
+
+    When an OutcomeStore is supplied, the historical success-rate EMA can nudge
+    the heuristic decision — but only when the heuristic itself is uncertain
+    (i.e. the prompt doesn't clearly call for fusion or clearly not).
+    """
     if config.mode == RouterMode.ALWAYS:
         return RouteDecision.FUSE
     if config.mode == RouterMode.NEVER:
@@ -114,7 +124,7 @@ def route(body: dict[str, Any], config: RouterConfig) -> RouteDecision:
     text = _user_text(body)
     lowered = text.lower()
 
-    # A code block or an explicitly analytical ask is worth a panel.
+    # Strong signals: code blocks and explicit analytical keywords always fuse.
     if "```" in text:
         return RouteDecision.FUSE
     if any(keyword in lowered for keyword in config.fuse_keywords):
@@ -122,6 +132,15 @@ def route(body: dict[str, Any], config: RouterConfig) -> RouteDecision:
     # Long prompts tend to carry enough substance to benefit from synthesis.
     if len(text) >= config.min_chars:
         return RouteDecision.FUSE
+
+    # Heuristic says SOLO — but check the outcome store for a learning-based nudge.
+    if outcomes is not None:
+        tier = prompt_tier(text)
+        prefer = outcomes.prefer_fuse(tier)
+        if prefer is True:
+            _log.debug("router: outcome store nudging SOLO→FUSE for tier=%s", tier)
+            return RouteDecision.FUSE
+
     return RouteDecision.SOLO
 
 
@@ -129,6 +148,7 @@ async def route_async(
     body: dict[str, Any],
     config: RouterConfig,
     client: UpstreamClient,
+    outcomes: OutcomeStore | None = None,
 ) -> RouteDecision:
     """Async router that supports the model classifier; else delegates to route().
 
@@ -136,7 +156,7 @@ async def route_async(
     never fails a request.
     """
     if config.mode != RouterMode.MODEL or config.classifier is None:
-        return route(body, config)
+        return route(body, config, outcomes)
 
     classifier = config.classifier.model_copy(update={"label": "router"})
     request = {
@@ -222,20 +242,26 @@ async def _classify_route(
 
 
 async def route_request(
-    body: dict[str, Any], config: RouterConfig, client: UpstreamClient
+    body: dict[str, Any],
+    config: RouterConfig,
+    client: UpstreamClient,
+    outcomes: OutcomeStore | None = None,
 ) -> tuple[RouteDecision, RouteModel | None]:
     """Decide fuse-vs-solo AND, for solo, which model — the single routing entry point.
 
     With ``mode: model`` and ``route_models`` set, one classifier call picks FUSE or a
     specific model. Otherwise the heuristic decides and ``select_model`` picks the model.
     Always falls back to the heuristic on any classifier error.
+
+    ``outcomes`` is the module-level OutcomeStore; when supplied, the learning loop can
+    nudge the heuristic toward whichever path has been winning recently.
     """
     if config.mode == RouterMode.MODEL and config.classifier is not None and config.route_models:
         result = await _classify_route(body, config, client)
         if result is not None:
             return result
 
-    decision = await route_async(body, config, client)
+    decision = await route_async(body, config, client, outcomes)
     if decision == RouteDecision.SOLO:
         return RouteDecision.SOLO, select_model(body, config)
     return RouteDecision.FUSE, None

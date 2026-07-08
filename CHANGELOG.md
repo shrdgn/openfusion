@@ -7,6 +7,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Routing learning loop** — the heuristic router (`router.mode: heuristic`) now tracks an
+  in-process EMA of fuse-vs-solo success rate per prompt tier (`openfusion.outcomes.OutcomeStore`)
+  and nudges future decisions toward whichever has been winning once either side has enough
+  observations. In-memory only (resets on restart); read-only snapshot at
+  `GET /v1/routing/outcomes`.
 - **Classifier model routing** — with `router.mode: model` + `route_models`, one classifier call
   picks FUSE *or the specific model* for the prompt (a single decision instead of two), falling back
   to the difficulty heuristic on any error. Unified entry point `router.route_request`.
@@ -34,11 +39,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 - Router SOLO requests now forward the configured single model upstream instead
   of the literal string `"openfusion"`.
-- `app.state.runtime_api_keys` (the UI-set-key store behind `/v1/runtime/api-key`)
-  is now bounded and LRU-evicted at 1024 entries. Previously it grew without
-  limit, and since that endpoint is reachable without a gateway token when no
-  `gateway.api_keys` allowlist is set (the zero-config default), a client
-  sending many distinct `Authorization` headers could exhaust server memory.
+- A `pipeline`-strategy streaming request no longer crashes the SSE response on
+  an upstream failure mid-pipeline. `pipeline_and_stream` now catches the
+  failure and emits an SSE error chunk + `[DONE]`, matching how
+  `vote_and_stream`/`ranked_and_stream`/`synthesize_and_stream` already
+  degrade a panel or judge failure after the response has started.
 
 ## [0.1.0] — 2026-06-17
 

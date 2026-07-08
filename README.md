@@ -141,6 +141,12 @@ Three knobs control *whether* and *how* a prompt is fused. All are optional and 
       - { model: anthropic/claude-sonnet-4, tier: strong }
   ```
 
+  The heuristic also **learns from outcomes**: an in-process EMA (exponential moving average)
+  tracks the success rate of fuse vs. solo per prompt tier, and — only when the heuristic itself is
+  otherwise uncertain — a clear-enough gap nudges the decision toward whichever has been winning. No
+  config needed; it's in-memory only (resets on restart) and read-only via
+  `GET /v1/routing/outcomes` for observability.
+
 - **Strategy** (`strategy:`) — how the panel is produced: `self_fusion` (one model sampled N times),
   `panel` (a fixed diverse panel), or `debate` (a diverse panel where each member revises after
   seeing the others' answers, then the judge synthesizes). Debate trades extra cost/latency for

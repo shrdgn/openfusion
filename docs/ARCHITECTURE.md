@@ -15,6 +15,7 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 | `pricing.py` | Cached best-effort per-model `$` pricing from the upstream `/models` endpoint | Business logic about panels or judges |
 | `estimate.py` | Pre-run cost/usage estimate for `POST /v1/estimate` (calls, tokens, `$`) | HTTP, upstream calls |
 | `router.py` | Per-prompt fuse-vs-solo decision (heuristic or model classifier) | SSE framing |
+| `outcomes.py` | In-process EMA of fuse/solo success rate per prompt tier; nudges `router.py`'s heuristic | HTTP, persistence |
 | `limits.py` | Concurrency cap + per-key rate limiting | HTTP, prompt/secret handling |
 | `responsecache.py` | In-process TTL/LRU cache of fused answers, keyed by prompt + recipe | HTTP, upstream calls |
 | `cache.py` | Prompt-cache breakpoint marking for the shared prefix | HTTP or upstream calls |
