@@ -11,7 +11,10 @@ const { getConfig, getEstimate, setApiKey, streamFusion } = vi.hoisted(() => ({
   streamFusion: vi.fn(),
 }));
 
-vi.mock("../lib/api", () => ({ getConfig, getEstimate, setApiKey, streamFusion }));
+vi.mock("../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api")>();
+  return { ...actual, getConfig, getEstimate, setApiKey, streamFusion };
+});
 
 function baseConfig(overrides: Partial<ActiveConfig> = {}): ActiveConfig {
   return {

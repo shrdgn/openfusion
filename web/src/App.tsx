@@ -30,6 +30,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/markdown";
 import {
   type ActiveConfig,
+  type ChatPayload,
+  errorMessage,
   type Estimate,
   getConfig,
   getEstimate,
@@ -37,6 +39,7 @@ import {
   type ProgressEvent,
   setApiKey,
   streamFusion,
+  type UsagePayload,
 } from "@/lib/api";
 
 type Preset = "quality" | "budget" | "custom";
@@ -75,7 +78,7 @@ export default function App() {
   const [panelAnswers, setPanelAnswers] = useState<PanelAnswer[]>([]);
   const [answer, setAnswer] = useState("");
   const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
-  const [usage, setUsage] = useState<any>(null);
+  const [usage, setUsage] = useState<UsagePayload | null>(null);
   const [hasRun, setHasRun] = useState(false);
   const [estimate, setEstimate] = useState<Estimate | null>(null);
   const answerRef = useRef("");
@@ -112,7 +115,7 @@ export default function App() {
       setEstimate(null);
       return;
     }
-    const payload: any = { messages: [{ role: "user", content: prompt }] };
+    const payload: ChatPayload = { messages: [{ role: "user", content: prompt }] };
     if (allowOverrides) {
       payload.openfusion = {
         panel: panel.filter(Boolean),
@@ -146,8 +149,8 @@ export default function App() {
       setNeedsKey(false);
       setKeySet(res.api_key_set);
       setKeyInput("");
-    } catch (err: any) {
-      setKeyError(err.message);
+    } catch (err) {
+      setKeyError(errorMessage(err));
     } finally {
       setKeySaving(false);
     }
@@ -165,7 +168,7 @@ export default function App() {
     setAnalysis(null);
     setUsage(null);
 
-    const payload: any = {
+    const payload: ChatPayload = {
       model: config?.fusion_model || "openfusion",
       messages: [{ role: "user", content: prompt }],
       stream: true,
@@ -735,7 +738,7 @@ function ModelChip({
 
 function AnalysisCard({ analysis }: { analysis: Record<string, unknown> }) {
   const [open, setOpen] = useState(true);
-  const entries =
+  const entries: [string, unknown][] =
     "raw" in analysis ? [["analysis", analysis.raw]] : Object.entries(analysis);
   return (
     <Card>
@@ -770,7 +773,7 @@ function AnalysisCard({ analysis }: { analysis: Record<string, unknown> }) {
   );
 }
 
-function UsageBar({ usage }: { usage: any }) {
+function UsageBar({ usage }: { usage: UsagePayload }) {
   const total = usage.total || usage.panel_total || usage;
   const parts: string[] = [];
   if (total?.total_tokens != null) parts.push(`${total.total_tokens} tokens`);
