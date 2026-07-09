@@ -203,6 +203,60 @@ async def test_estimate_endpoint_requires_gateway_auth(mock_router) -> None:
     assert ok.status_code == 200
 
 
+async def test_estimate_endpoint_rejects_invalid_json() -> None:
+    app = create_app(_config())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/estimate",
+            content=b"{not json",
+            headers={"Content-Type": "application/json"},
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 400
+    assert res.json()["error"]["type"] == "invalid_request_error"
+
+
+async def test_estimate_endpoint_rejects_non_object_body() -> None:
+    app = create_app(_config())
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post("/v1/estimate", json=["not", "an", "object"])
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 400
+
+
+async def test_estimate_endpoint_applies_request_override(mock_router) -> None:
+    """An `openfusion` override in the body changes which models get priced."""
+    mock_router.get("https://mock.upstream/v1/models").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "m3", "pricing": {"prompt": "0.000001", "completion": "0.000002"}}
+                ]
+            },
+        )
+    )
+    cfg = _config()
+    cfg.allow_request_overrides = True
+    app = create_app(cfg)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post(
+            "/v1/estimate",
+            json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "openfusion": {"panel": ["m3"]},
+            },
+        )
+    await app.state.upstream_client.aclose()
+    body = res.json()
+    assert res.status_code == 200
+    assert "m3" in body["models"]
+    assert "m1" not in body["models"] and "m2" not in body["models"]
+
+
 async def test_pricing_cache_hit_skips_fetch(mock_router) -> None:
     """A valid cached entry is returned without making a second HTTP call."""
     call_count = 0

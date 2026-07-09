@@ -45,6 +45,13 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `vote_and_stream`/`ranked_and_stream`/`synthesize_and_stream` already
   degrade a panel or judge failure after the response has started.
 
+### Changed
+- The Docker image now runs `openfusion` as an unprivileged `openfusion` user
+  instead of root.
+- The playground's TypeScript client (`web/src/lib/api.ts`, `App.tsx`) now
+  types request/response payloads (`ChatPayload`, `UsagePayload`) instead of
+  `any`, catching shape mismatches at compile time.
+
 ## [0.1.0] — 2026-06-17
 
 First public release. openfusion is an open, OpenAI-compatible mixture-of-agents

@@ -91,6 +91,43 @@ async def test_runtime_api_key_rejected_when_disabled() -> None:
     assert res.json()["error"]["code"] == "ui_key_disabled"
 
 
+async def test_runtime_api_key_can_be_cleared() -> None:
+    """Posting an empty api_key removes any previously-set runtime key."""
+    app = _quickstart_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        await http_client.post("/v1/runtime/api-key", json={"api_key": "sk-live"})
+        clear_res = await http_client.post("/v1/runtime/api-key", json={"api_key": ""})
+        cfg = (await http_client.get("/v1/config")).json()
+    await app.state.upstream_client.aclose()
+    assert clear_res.status_code == 200
+    assert clear_res.json()["api_key_set"] is False
+    assert cfg["needs_api_key"] is True
+
+
+async def test_runtime_api_key_rejects_invalid_json() -> None:
+    app = _quickstart_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        res = await http_client.post(
+            "/v1/runtime/api-key",
+            content=b"{not json",
+            headers={"Content-Type": "application/json"},
+        )
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 400
+    assert res.json()["error"]["type"] == "invalid_request_error"
+
+
+async def test_runtime_api_key_rejects_non_object_body() -> None:
+    app = _quickstart_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        res = await http_client.post("/v1/runtime/api-key", json=["not", "an", "object"])
+    await app.state.upstream_client.aclose()
+    assert res.status_code == 400
+
+
 async def test_request_without_key_returns_clear_error() -> None:
     app = _quickstart_app()
     transport = httpx.ASGITransport(app=app)

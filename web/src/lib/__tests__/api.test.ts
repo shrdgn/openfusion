@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { streamFusion, type StreamHandlers } from "../api";
+import { streamFusion, type ChatPayload, type StreamHandlers } from "../api";
 
 /** Builds a fetch Response whose body streams the given text chunks one read() at a time. */
 function streamResponse(chunks: string[], init: { ok?: boolean; status?: number } = {}): Response {
@@ -26,6 +26,8 @@ function handlers(): StreamHandlers & { events: unknown[] } {
   };
 }
 
+const PAYLOAD: ChatPayload = { messages: [{ role: "user", content: "hi" }] };
+
 describe("streamFusion", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -44,7 +46,7 @@ describe("streamFusion", () => {
       )
     );
     const h = handlers();
-    await streamFusion({}, undefined, h);
+    await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toEqual([["content", "hello"]]);
   });
 
@@ -62,7 +64,7 @@ describe("streamFusion", () => {
       )
     );
     const h = handlers();
-    await streamFusion({}, undefined, h);
+    await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toEqual([
       ["progress", { stage: "panel", total: 2 }],
       ["panel_answer", { model: "m1", label: "a", content: "x" }],
@@ -82,7 +84,7 @@ describe("streamFusion", () => {
       )
     );
     const h = handlers();
-    await streamFusion({}, undefined, h);
+    await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toEqual([["error", "judge failed"]]);
   });
 
@@ -94,7 +96,7 @@ describe("streamFusion", () => {
       )
     );
     const h = handlers();
-    await streamFusion({}, undefined, h);
+    await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toEqual([["content", "ok"]]);
   });
 
@@ -104,14 +106,14 @@ describe("streamFusion", () => {
     });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
     const h = handlers();
-    await streamFusion({}, undefined, h);
+    await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toEqual([["error", "bad request"]]);
   });
 
   it("calls onError with a reachability message when fetch itself throws", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network down")));
     const h = handlers();
-    await streamFusion({}, undefined, h);
+    await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toHaveLength(1);
     const [kind, message] = h.events[0] as [string, string];
     expect(kind).toBe("error");
@@ -124,14 +126,14 @@ describe("streamFusion", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await streamFusion({}, "secret-token", handlers());
+    await streamFusion(PAYLOAD, "secret-token", handlers());
     const [, initWithToken] = fetchMock.mock.calls[0];
     expect((initWithToken.headers as Record<string, string>).Authorization).toBe(
       "Bearer secret-token"
     );
 
     fetchMock.mockClear();
-    await streamFusion({}, undefined, handlers());
+    await streamFusion(PAYLOAD, undefined, handlers());
     const [, initWithoutToken] = fetchMock.mock.calls[0];
     expect((initWithoutToken.headers as Record<string, string>).Authorization).toBeUndefined();
   });

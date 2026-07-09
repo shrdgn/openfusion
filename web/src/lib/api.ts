@@ -25,6 +25,30 @@ async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   }
 }
 
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+export interface ChatMessage {
+  role: string;
+  content: string;
+}
+
+export interface OpenFusionRequestOverride {
+  panel?: string[];
+  judge?: string | null;
+  tools?: { web_search?: boolean; web_fetch?: boolean };
+  max_tokens?: number;
+  expose_panel?: boolean;
+}
+
+export interface ChatPayload {
+  model?: string;
+  messages: ChatMessage[];
+  stream?: boolean;
+  openfusion?: OpenFusionRequestOverride;
+}
+
 export interface Estimate {
   calls: number;
   models: string[];
@@ -33,7 +57,7 @@ export interface Estimate {
   cost_usd: number | null;
 }
 
-export async function getEstimate(payload: any): Promise<Estimate> {
+export async function getEstimate(payload: ChatPayload): Promise<Estimate> {
   const res = await apiFetch("/v1/estimate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -78,13 +102,31 @@ export interface PanelAnswer {
   content: string;
 }
 
+export interface TokenUsage {
+  total_tokens?: number;
+  cost?: number;
+}
+
+export interface UsagePayload {
+  total?: TokenUsage;
+  panel_total?: TokenUsage;
+  panel?: unknown[];
+  total_tokens?: number;
+  cost?: number;
+}
+
 export interface StreamHandlers {
   onProgress?: (event: ProgressEvent) => void;
   onPanelAnswer?: (answer: PanelAnswer) => void;
   onContent?: (text: string) => void;
   onAnalysis?: (analysis: Record<string, unknown>) => void;
-  onUsage?: (usage: any) => void;
+  onUsage?: (usage: UsagePayload) => void;
   onError?: (msg: string) => void;
+}
+
+interface ChatCompletionChunk {
+  error?: { message?: string };
+  choices?: Array<{ delta?: { content?: string } }>;
 }
 
 function flushBlock(block: string, h: StreamHandlers) {
@@ -97,7 +139,7 @@ function flushBlock(block: string, h: StreamHandlers) {
   if (!dataLines.length) return;
   const raw = dataLines.join("\n");
   if (raw === "[DONE]") return;
-  let data: any;
+  let data: unknown;
   try {
     data = JSON.parse(raw);
   } catch {
@@ -108,18 +150,25 @@ function flushBlock(block: string, h: StreamHandlers) {
   } else if (event === "panel_answer") {
     h.onPanelAnswer?.(data as PanelAnswer);
   } else if (event === "analysis") {
-    h.onAnalysis?.(data);
+    h.onAnalysis?.(data as Record<string, unknown>);
   } else if (event === "usage") {
-    h.onUsage?.(data);
-  } else if (data.error) {
-    h.onError?.(data.error.message || "upstream error");
+    h.onUsage?.(data as UsagePayload);
   } else {
-    const delta = data.choices?.[0]?.delta;
-    if (delta?.content) h.onContent?.(delta.content);
+    const chunk = data as ChatCompletionChunk;
+    if (chunk.error) {
+      h.onError?.(chunk.error.message || "upstream error");
+    } else {
+      const delta = chunk.choices?.[0]?.delta;
+      if (delta?.content) h.onContent?.(delta.content);
+    }
   }
 }
 
-export async function streamFusion(payload: any, token: string | undefined, h: StreamHandlers) {
+export async function streamFusion(
+  payload: ChatPayload,
+  token: string | undefined,
+  h: StreamHandlers
+) {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.Authorization = "Bearer " + token;
   let res: Response;
@@ -130,7 +179,7 @@ export async function streamFusion(payload: any, token: string | undefined, h: S
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    h.onError?.((err as Error).message);
+    h.onError?.(errorMessage(err));
     return;
   }
   if (!res.ok || !res.body) {
