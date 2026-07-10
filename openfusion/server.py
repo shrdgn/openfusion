@@ -599,6 +599,36 @@ async def _pass_through(
     return JSONResponse(content=result)
 
 
+async def _stream_with_cancellation(
+    request: Request,
+    make_lines: Callable[[asyncio.Event], AsyncIterator[str]],
+    on_finish: Callable[[str], None],
+) -> AsyncIterator[str]:
+    """Watch for client disconnect and report success/error outcome once done.
+
+    Shared by ``_pipeline_stream`` and ``_fusion_stream``: both need a
+    disconnect-triggered ``cancel_event``, forward its lines until cancelled,
+    and record an outcome in a ``finally`` regardless of how the loop ends.
+    """
+    cancel_event = asyncio.Event()
+    task = asyncio.create_task(_watch_disconnect(request, cancel_event))
+    outcome = "success"
+    try:
+        async for line in make_lines(cancel_event):
+            if cancel_event.is_set():
+                break
+            yield line
+    except Exception:
+        outcome = "error"
+        raise
+    finally:
+        cancel_event.set()
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        on_finish(outcome)
+
+
 async def _pipeline_stream(
     request: Request,
     body: dict[str, Any],
@@ -607,29 +637,15 @@ async def _pipeline_stream(
     *,
     started: float,
 ) -> StreamingResponse:
-    cancel_event = asyncio.Event()
+    def on_finish(outcome: str) -> None:
+        _record_request("pipeline", outcome, started)
 
-    async def event_stream() -> AsyncIterator[str]:
-        task = asyncio.create_task(_watch_disconnect(request, cancel_event))
-        outcome = "success"
-        try:
-            async for line in pipeline_and_stream(
-                body, config, client, cancel_event=cancel_event
-            ):
-                if cancel_event.is_set():
-                    break
-                yield line
-        except Exception:
-            outcome = "error"
-            raise
-        finally:
-            cancel_event.set()
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-            _record_request("pipeline", outcome, started)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    lines = _stream_with_cancellation(
+        request,
+        lambda cancel_event: pipeline_and_stream(body, config, client, cancel_event=cancel_event),
+        on_finish,
+    )
+    return StreamingResponse(lines, media_type="text/event-stream")
 
 
 async def _fusion_stream(
@@ -641,8 +657,6 @@ async def _fusion_stream(
     started: float,
     on_complete: Callable[[str, dict[str, Any] | None], Awaitable[None]] | None = None,
 ) -> StreamingResponse:
-    cancel_event = asyncio.Event()
-
     if config.aggregator == Aggregator.VOTE:
         streamer = vote_and_stream
     elif config.aggregator == Aggregator.RANKED:
@@ -650,31 +664,15 @@ async def _fusion_stream(
     else:
         streamer = synthesize_and_stream
 
-    async def event_stream() -> AsyncIterator[str]:
-        task = asyncio.create_task(_watch_disconnect(request, cancel_event))
-        outcome = "success"
-        try:
-            async for line in streamer(
-                body,
-                config,
-                client,
-                cancel_event=cancel_event,
-            ):
-                if cancel_event.is_set():
-                    break
-                yield line
-        except Exception:
-            outcome = "error"
-            raise
-        finally:
-            cancel_event.set()
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-            _record_request("fusion", outcome, started)
-            _record_outcome("fusion", outcome, body)
+    def on_finish(outcome: str) -> None:
+        _record_request("fusion", outcome, started)
+        _record_outcome("fusion", outcome, body)
 
-    lines = event_stream()
+    lines = _stream_with_cancellation(
+        request,
+        lambda cancel_event: streamer(body, config, client, cancel_event=cancel_event),
+        on_finish,
+    )
     if on_complete is not None:
         lines = capture_stream(lines, on_complete)
     return StreamingResponse(lines, media_type="text/event-stream")
