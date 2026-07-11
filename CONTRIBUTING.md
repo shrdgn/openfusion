@@ -69,11 +69,10 @@ Areas where help is especially useful (see "Open questions" / "Follow-up" in
 `DESIGN.md` and `docs/ARCHITECTURE.md`, and "Next" in `ROADMAP.md`):
 
 - Fusion-aware tool/function-calling (today tool requests pass through unfused).
-- Routing that learns from outcomes (bias future routing by which model/recipe
-  did well; the classifier-based picker in `router.py` is the current baseline).
 - Live `$` pricing in `/v1/estimate` for non-OpenRouter providers, and a CLI
   cost preview (`openfusion ask --estimate`).
-- Hardening the DRACO benchmark to the full 100 tasks with a stronger grader.
+- Scaling the DRACO benchmark to the full task set with a stronger grader (see
+  `bench/FINDINGS.md`).
 
 ## License
 
