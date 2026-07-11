@@ -22,6 +22,19 @@ WEB_FETCH_TYPE = "openrouter:web_fetch"
 # cannot, because their results come back through the client.
 SERVER_EXECUTABLE_TOOL_TYPES = frozenset({WEB_SEARCH_TYPE, WEB_FETCH_TYPE})
 
+# Client-side tool-calling fields, stripped from judge-facing request bodies
+# (ranked-choice and synthesis judge calls): the judge only picks/synthesizes
+# text from the panel's already-produced answers and must not itself emit
+# tool calls the client never asked it for.
+_TOOL_CALL_FIELDS = ("tools", "tool_choice", "functions", "function_call")
+
+
+def strip_tool_fields(body: dict[str, Any]) -> dict[str, Any]:
+    """Remove client-side tool-calling fields from ``body``. Mutates and returns it."""
+    for key in _TOOL_CALL_FIELDS:
+        body.pop(key, None)
+    return body
+
 
 def tools_are_server_executable(tools: Any) -> bool:
     """True when ``tools`` is a non-empty list of only server-executable tools."""

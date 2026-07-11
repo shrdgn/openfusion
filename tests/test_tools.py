@@ -8,8 +8,26 @@ from openfusion.tools import (
     WEB_SEARCH_TYPE,
     apply_web_tools,
     build_web_tools,
+    strip_tool_fields,
     tools_are_server_executable,
 )
+
+
+def test_strip_tool_fields_removes_all_tool_call_keys() -> None:
+    body = {
+        "messages": [],
+        "tools": [{"type": "function"}],
+        "tool_choice": "auto",
+        "functions": [{"name": "f"}],
+        "function_call": "auto",
+    }
+    assert strip_tool_fields(body) is body
+    assert body == {"messages": []}
+
+
+def test_strip_tool_fields_noop_when_absent() -> None:
+    body = {"messages": []}
+    assert strip_tool_fields(body) == {"messages": []}
 
 
 def test_server_executable_detection() -> None:

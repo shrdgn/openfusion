@@ -10,7 +10,7 @@ from openfusion.config import JudgeConfig, OpenFusionConfig
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult
-from openfusion.tools import apply_web_tools
+from openfusion.tools import apply_web_tools, strip_tool_fields
 from openfusion.upstream import UpstreamClient, extract_response_usage
 
 JUDGE_SYSTEM_PROMPT = (
@@ -126,8 +126,7 @@ async def synthesize(
     judge_body.pop("model", None)
     # The judge synthesizes the final text answer; it must not emit tool calls.
     # Client-supplied tools were already run by the panel (when server-executable).
-    for tool_key in ("tools", "tool_choice", "functions", "function_call"):
-        judge_body.pop(tool_key, None)
+    strip_tool_fields(judge_body)
     judge_body["stream"] = True
     if request_body.get("stream_options"):
         judge_body["stream_options"] = request_body["stream_options"]

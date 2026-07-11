@@ -16,6 +16,7 @@ from openfusion.config import OpenFusionConfig
 from openfusion.cost import RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult
+from openfusion.tools import strip_tool_fields
 from openfusion.upstream import UpstreamClient
 
 _RANK_PROMPT = (
@@ -80,8 +81,7 @@ async def pick_best(
     body = copy.deepcopy(request_body)
     body["messages"] = build_ranking_messages(messages, panel)
     body.pop("model", None)
-    for tool_key in ("tools", "tool_choice", "functions", "function_call"):
-        body.pop(tool_key, None)
+    strip_tool_fields(body)
     body["max_tokens"] = 8
     body["stream"] = False
 
