@@ -15,6 +15,7 @@ from openfusion.config import (
     Strategy,
     TimeoutsConfig,
 )
+from openfusion.errors import UpstreamError
 from openfusion.panel import MemberResponse, PanelResult
 from openfusion.ranked import _original_user_text, _parse_choice, build_ranking_messages, pick_best
 from openfusion.server import create_app
@@ -78,6 +79,62 @@ async def test_pick_best_single_response_skips_judge(mock_router) -> None:
 
 
 @pytest.mark.asyncio
+async def test_pick_best_requires_judge() -> None:
+    config = OpenFusionConfig(
+        panel=[PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m")],
+        judge=None,
+    )
+    panel = PanelResult(
+        responses=[
+            MemberResponse(label="a", content="one", model="m"),
+            MemberResponse(label="b", content="two", model="m"),
+        ]
+    )
+    client = UpstreamClient()
+
+    with pytest.raises(UpstreamError, match="requires a judge"):
+        await pick_best({"messages": [{"role": "user", "content": "q"}]}, panel, config, client)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pick_best_rejects_non_list_messages() -> None:
+    panel = PanelResult(
+        responses=[
+            MemberResponse(label="a", content="one", model="m"),
+            MemberResponse(label="b", content="two", model="m"),
+        ]
+    )
+    client = UpstreamClient()
+
+    with pytest.raises(UpstreamError, match="must be a list"):
+        await pick_best({"messages": "not-a-list"}, panel, _config(), client)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_pick_best_rejects_non_json_ranking_response(monkeypatch) -> None:
+    # client.chat_completion already guards non-JSON HTTP responses (raises
+    # UpstreamError before returning), so this defensive branch is only
+    # reachable if a client implementation returns something unexpected.
+    panel = PanelResult(
+        responses=[
+            MemberResponse(label="a", content="one", model="m"),
+            MemberResponse(label="b", content="two", model="m"),
+        ]
+    )
+    async def _mock_chat_completion(*_args, **_kwargs):
+        return "not-a-dict"
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", _mock_chat_completion)
+
+    with pytest.raises(UpstreamError, match="Expected JSON ranking response"):
+        await pick_best({"messages": [{"role": "user", "content": "q"}]}, panel, _config(), client)
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_ranked_aggregator_end_to_end(mock_router) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
@@ -117,6 +174,64 @@ async def test_ranked_aggregator_end_to_end(mock_router) -> None:
     assert response.status_code == 200
     # The judge picked candidate 2 → the second panel member's answer.
     assert response.json()["choices"][0]["message"]["content"] == "ans-m2"
+
+
+@pytest.mark.asyncio
+async def test_ranked_aggregator_streams_via_http(mock_router) -> None:
+    """A streaming request with aggregator=ranked wires up to ranked_and_stream.
+
+    Exercises server.py's _fusion_stream branch that selects ranked_and_stream
+    as the streamer -- every other case (VOTE, JUDGE) already has HTTP-level
+    streaming coverage, but RANKED didn't.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        text = json.dumps(payload["messages"])
+        if "Candidate answers:" in text:  # the ranking call
+            return httpx.Response(
+                200, json={"choices": [{"message": {"role": "assistant", "content": "1"}}]}
+            )
+        answer = f"ans-{payload['model']}"
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": answer}}]},
+        )
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(side_effect=handler)
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        aggregator=Aggregator.RANKED,
+        panel=[
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1", label="a"),
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m2", label="b"),
+        ],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="judge"),
+        timeouts=TimeoutsConfig(member_seconds=5, judge_seconds=5, total_seconds=15),
+    )
+    app = create_app(config)
+
+    transport = httpx.ASGITransport(app=app)
+    async with (
+        httpx.AsyncClient(transport=transport, base_url="http://test") as http_client,
+        http_client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "openfusion",
+                "messages": [{"role": "user", "content": "q"}],
+                "stream": True,
+            },
+        ) as response,
+    ):
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        body = "".join([chunk async for chunk in response.aiter_text()])
+    await app.state.upstream_client.aclose()
+
+    # The judge picked candidate 1 -> the first panel member's answer.
+    assert "ans-m1" in body
+    assert body.rstrip().endswith("data: [DONE]")
 
 
 # ---------------------------------------------------------------------------

@@ -29,3 +29,9 @@ def test_marks_last_block_of_list_content() -> None:
 
 def test_noop_on_empty_messages() -> None:
     assert mark_cache_breakpoint({"messages": []}) == {"messages": []}
+
+
+def test_noop_when_no_system_or_user_message() -> None:
+    body = {"messages": [{"role": "assistant", "content": "a"}]}
+    assert mark_cache_breakpoint(body) == body
+    assert body["messages"][0]["content"] == "a"

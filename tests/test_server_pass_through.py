@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 
 import httpx
+import pytest
 
 from openfusion.config import CostControlsConfig, OpenFusionConfig
-from openfusion.server import create_app
+from openfusion.server import _pass_through, create_app
+from openfusion.upstream import UpstreamClient
 
 
 async def test_non_fusion_model_passes_through(client: httpx.AsyncClient, mock_router) -> None:
@@ -292,3 +295,64 @@ async def test_pass_through_stream_raises_when_upstream_not_streaming(app) -> No
 
     assert response.status_code == 502
     assert response.json()["error"]["message"] == "Expected streaming upstream response"
+
+
+async def test_pass_through_raises_when_upstream_returns_non_dict(app) -> None:
+    """`_pass_through` raises an UpstreamError if a non-streaming call doesn't return JSON.
+
+    Like the "not streaming" defensive branch above, the real HTTP client always
+    returns a dict for a non-streaming JSON response (or raises earlier while
+    parsing it) -- so this is exercised via monkeypatching `chat_completion`.
+    """
+
+    async def _mock_chat_completion(*_args, **_kwargs):
+        return "not-a-dict"
+
+    app.state.upstream_client.chat_completion = _mock_chat_completion
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        response = await http_client.post(
+            "/v1/chat/completions",
+            json={"model": "pass-model", "messages": [{"role": "user", "content": "hello"}]},
+        )
+
+    assert response.status_code == 502
+    assert response.json()["error"]["message"] == "Expected JSON upstream response"
+
+
+async def test_pass_through_stream_records_error_outcome_on_upstream_failure(
+    test_config: OpenFusionConfig,
+) -> None:
+    """A mid-stream upstream failure records an error outcome and re-raises.
+
+    _pass_through's event_stream() catches any exception from the upstream
+    iterator only to flip its outcome flag before re-raising -- called directly
+    since a real upstream failure surfaces as an UpstreamError from the SSE
+    parser, not an arbitrary exception type.
+    """
+    client = UpstreamClient()
+
+    async def _mock_chat_completion(*_args, **_kwargs):
+        async def _gen():
+            yield {"choices": [{"delta": {"content": "partial"}}]}
+            raise RuntimeError("upstream dropped connection")
+
+        return _gen()
+
+    client.chat_completion = _mock_chat_completion
+
+    response = await _pass_through(
+        {"model": "pass-model", "messages": [{"role": "user", "content": "hi"}]},
+        test_config,
+        client,
+        stream=True,
+        started=time.perf_counter(),
+    )
+
+    received = []
+    with pytest.raises(RuntimeError, match="upstream dropped connection"):
+        async for chunk in response.body_iterator:
+            received.append(chunk)
+    assert received  # the first chunk made it out before the failure
+    await client.aclose()

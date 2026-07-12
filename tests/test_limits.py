@@ -91,3 +91,29 @@ async def test_server_rate_limit_returns_429(
     assert first.status_code == 200
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "rate_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_server_releases_concurrency_slot_after_response(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    """With a concurrency cap set, a completed request frees its slot for the next one."""
+    test_config.limits = LimitsConfig(max_in_flight=1)
+    app = create_app(test_config)
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {"model": "pass-model", "messages": [{"role": "user", "content": "hi"}]}
+        first = await http_client.post("/v1/chat/completions", json=payload)
+        # If the slot wasn't released after `first` finished, this would 503.
+        second = await http_client.post("/v1/chat/completions", json=payload)
+    await app.state.upstream_client.aclose()
+
+    assert first.status_code == 200
+    assert second.status_code == 200

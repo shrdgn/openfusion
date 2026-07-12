@@ -86,6 +86,22 @@ def test_tool_role_message_forces_pass_through() -> None:
     assert _requires_pass_through_tools({"messages": [{"role": "tool", "content": "x"}]}) is True
 
 
+def test_non_dict_message_is_skipped() -> None:
+    # A malformed message (not a dict) shouldn't crash the scan; it's just skipped.
+    body = {**_body("hi"), "messages": [{"role": "user", "content": "hi"}, "not-a-message"]}
+    assert _requires_pass_through_tools(body) is False
+
+
+def test_legacy_function_call_forces_pass_through() -> None:
+    body = {**_body("hi"), "function_call": {"name": "f"}}
+    assert _requires_pass_through_tools(body) is True
+
+
+def test_legacy_functions_field_forces_pass_through() -> None:
+    body = {**_body("hi"), "functions": [{"name": "f"}]}
+    assert _requires_pass_through_tools(body) is True
+
+
 def _model_router() -> RouterConfig:
     return RouterConfig(
         enabled=True,

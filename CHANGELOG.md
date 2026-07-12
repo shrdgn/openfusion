@@ -37,6 +37,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `/v1/chat/completions` now returns a clean 400 `invalid_request_error`
+  ("Request body must be a JSON object") for a non-object JSON body (e.g. a
+  list or string), instead of crashing with an unhandled 500 while recording
+  the request outcome.
 - `response_cache`'s cache key now folds in a fingerprint of the resolved panel/
   judge API key(s), so a `config_resolver`-based multi-tenant deployment (see
   `docs/EMBEDDING.md`) never serves one tenant's cached answer to another tenant

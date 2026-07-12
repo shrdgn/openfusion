@@ -73,6 +73,13 @@ def test_estimate_input_tokens_mixed_messages() -> None:
     assert _estimate_input_tokens(messages) == 9
 
 
+def test_estimate_input_tokens_skips_non_dict_messages() -> None:
+    from openfusion.estimate import _estimate_input_tokens
+
+    messages = ["not-a-message", {"role": "user", "content": "x" * 40}]
+    assert _estimate_input_tokens(messages) == 10  # the non-dict entry is skipped
+
+
 def test_estimate_input_tokens_non_list_returns_zero() -> None:
     from openfusion.estimate import _estimate_input_tokens
 

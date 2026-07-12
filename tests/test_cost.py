@@ -135,3 +135,16 @@ def test_apply_does_not_mutate_original_body() -> None:
     body: dict = {"max_tokens": 500, "temperature": 0.7}
     _ = policy.apply_token_limit(body, RequestPhase.PANEL, reject_over_limit=False)
     assert body["max_tokens"] == 500  # deep-copied; original unchanged
+
+
+# ---------------------------------------------------------------------------
+# _limit_for — defensive branch for an unrecognized phase
+# ---------------------------------------------------------------------------
+
+
+def test_limit_for_unknown_phase_raises() -> None:
+    # RequestPhase is a closed StrEnum, so this is only reachable if a caller
+    # passes something other than one of its three members.
+    policy = _policy()
+    with pytest.raises(ValueError, match="Unknown request phase"):
+        policy._limit_for("bogus")

@@ -381,9 +381,10 @@ def create_app(
         try:
             _validate_gateway_auth(cfg, authorization)
             limiter.check_rate(_client_key(authorization))
-            body = await request.json()
-            if not isinstance(body, dict):
+            parsed_body = await request.json()
+            if not isinstance(parsed_body, dict):
                 raise InvalidRequestError("Request body must be a JSON object")
+            body = parsed_body
 
             model = body.get("model")
             if not isinstance(model, str) or not model:
