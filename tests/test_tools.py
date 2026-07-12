@@ -36,6 +36,7 @@ def test_server_executable_detection() -> None:
     assert not tools_are_server_executable([{"type": "function", "function": {"name": "f"}}])
     assert not tools_are_server_executable([{"type": WEB_SEARCH_TYPE}, {"type": "function"}])
     assert not tools_are_server_executable("nope")
+    assert not tools_are_server_executable([{"type": WEB_SEARCH_TYPE}, "not-a-dict"])
 
 
 def test_disabled_is_noop() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from openfusion.config import JudgeConfig, OpenFusionConfig, PanelMember
+from openfusion.config import JudgeConfig, OpenFusionConfig, PanelMember, ToolsConfig
 from openfusion.errors import UpstreamError
 from openfusion.panel import MemberResponse, PanelResult
 from openfusion.synthesize import (
@@ -203,6 +203,68 @@ async def test_synthesize_yields_deltas_from_stream(monkeypatch) -> None:
 
     assert deltas == ["hello", " world", ""]
     assert finish_reasons == ["stop"]
+
+
+@pytest.mark.asyncio
+async def test_synthesize_forwards_stream_options_to_judge(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def _mock_chat_completion(_member, body, **_kwargs):
+        captured.update(body)
+
+        async def _gen():
+            yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+
+        return _gen()
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", _mock_chat_completion)
+
+    async for _ in synthesize(
+        {
+            "messages": [{"role": "user", "content": "q"}],
+            "stream_options": {"include_usage": True},
+        },
+        _panel_with("panel answer"),
+        _synth_config(),
+        client,
+    ):
+        pass
+
+    assert captured["stream_options"] == {"include_usage": True}
+
+
+@pytest.mark.asyncio
+async def test_synthesize_applies_web_tools_when_configured_for_judge(monkeypatch) -> None:
+    captured: dict = {}
+
+    async def _mock_chat_completion(_member, body, **_kwargs):
+        captured.update(body)
+
+        async def _gen():
+            yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+
+        return _gen()
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", _mock_chat_completion)
+
+    config = OpenFusionConfig(
+        panel=[PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="judge"),
+        tools=ToolsConfig(web_search=True, apply_to_judge=True),
+    )
+
+    async for _ in synthesize(
+        {"messages": [{"role": "user", "content": "q"}]},
+        _panel_with("panel answer"),
+        config,
+        client,
+    ):
+        pass
+
+    tool_types = {tool["type"] for tool in captured["tools"]}
+    assert "openrouter:web_search" in tool_types
 
 
 @pytest.mark.asyncio

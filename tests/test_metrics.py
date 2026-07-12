@@ -7,7 +7,7 @@ import json
 import httpx
 import pytest
 
-from openfusion.metrics import METRICS, Metrics
+from openfusion.metrics import METRICS, Metrics, _fmt, _labels
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +26,18 @@ def test_counters_accumulate_by_labels() -> None:
     assert m.value("openfusion_requests_total", route="fusion", outcome="success") == 2
     assert m.value("openfusion_requests_total", route="pass_through", outcome="error") == 1
     assert m.snapshot()["request_latency_ms"]["fusion"] == {"count": 2, "sum_ms": 400}
+
+
+def test_labels_empty_pairs_renders_no_braces() -> None:
+    assert _labels({}) == ""
+
+
+def test_fmt_non_integer_float_uses_repr() -> None:
+    assert _fmt(0.5) == "0.5"
+
+
+def test_fmt_integer_valued_float_renders_as_int() -> None:
+    assert _fmt(3.0) == "3"
 
 
 def test_upstream_records_tokens_and_cost() -> None:
