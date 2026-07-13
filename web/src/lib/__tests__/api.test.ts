@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { streamFusion, type ChatPayload, type StreamHandlers } from "../api";
+import {
+  getConfig,
+  getEstimate,
+  setApiKey,
+  streamFusion,
+  type ChatPayload,
+  type StreamHandlers,
+} from "../api";
 
 /** Builds a fetch Response whose body streams the given text chunks one read() at a time. */
 function streamResponse(chunks: string[], init: { ok?: boolean; status?: number } = {}): Response {
@@ -136,5 +143,109 @@ describe("streamFusion", () => {
     await streamFusion(PAYLOAD, undefined, handlers());
     const [, initWithoutToken] = fetchMock.mock.calls[0];
     expect((initWithoutToken.headers as Record<string, string>).Authorization).toBeUndefined();
+  });
+});
+
+describe("getEstimate", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts the payload to /v1/estimate and returns the parsed estimate", async () => {
+    const estimate = {
+      calls: 3,
+      models: ["m1", "m2"],
+      input_tokens: 42,
+      max_output_tokens: 512,
+      cost_usd: 0.01,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(estimate)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getEstimate(PAYLOAD);
+
+    expect(result).toEqual(estimate);
+    const [path, init] = fetchMock.mock.calls[0];
+    expect(path).toBe("/v1/estimate");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual(PAYLOAD);
+  });
+
+  it("throws with the status code on a non-2xx response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 500 })));
+    await expect(getEstimate(PAYLOAD)).rejects.toThrow("estimate 500");
+  });
+
+  it("rejects with a reachability error when fetch itself throws", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("network down")));
+    await expect(getEstimate(PAYLOAD)).rejects.toThrow(/couldn't reach the openfusion server/i);
+  });
+});
+
+describe("getConfig", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches /v1/config and returns the parsed config", async () => {
+    const config = {
+      preset: "budget",
+      strategy: "panel",
+      aggregator: "judge",
+      panel: ["m1"],
+      judge: "m1",
+      tools: { web_search: false, web_fetch: false },
+      allow_request_overrides: true,
+      allow_ui_api_key: true,
+      needs_api_key: false,
+      api_key_set: true,
+      presets: {},
+      fusion_model: "openfusion",
+    };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(config)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getConfig();
+
+    expect(result).toEqual(config);
+    expect(fetchMock.mock.calls[0][0]).toBe("/v1/config");
+  });
+
+  it("throws a descriptive error on a non-2xx response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("nope", { status: 503 })));
+    await expect(getConfig()).rejects.toThrow("Could not load config (503)");
+  });
+});
+
+describe("setApiKey", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("posts the key to /v1/runtime/api-key and returns the parsed body", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ api_key_set: true })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await setApiKey("sk-secret");
+
+    expect(result).toEqual({ api_key_set: true });
+    const [path, init] = fetchMock.mock.calls[0];
+    expect(path).toBe("/v1/runtime/api-key");
+    expect(JSON.parse(init.body as string)).toEqual({ api_key: "sk-secret" });
+  });
+
+  it("throws the server's error message on a non-2xx response with a JSON body", async () => {
+    const res = new Response(JSON.stringify({ error: { message: "invalid key" } }), {
+      status: 400,
+    });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(res));
+    await expect(setApiKey("bad")).rejects.toThrow("invalid key");
+  });
+
+  it("falls back to a generic message when the error body isn't valid JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 502 })));
+    await expect(setApiKey("bad")).rejects.toThrow("Failed to set key (502)");
   });
 });
