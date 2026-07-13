@@ -10,9 +10,17 @@ counters are safe without a lock.
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 
 from openfusion.config import LimitsConfig
 from openfusion.errors import OverloadedError, RateLimitError
+
+# Hard cap on distinct rate-limit keys tracked at once. The expiry-based prune
+# below only runs when the *current* key's own window has expired, so a client
+# that never reuses a key (e.g. rotating Bearer tokens, one per request) would
+# otherwise grow _window without bound. This mirrors the LRU eviction used for
+# ResponseCache and server.py's runtime_api_keys store.
+_WINDOW_MAX_KEYS = 10_000
 
 
 class RequestLimiter:
@@ -21,7 +29,7 @@ class RequestLimiter:
         self._rpm = config.rate_limit_per_minute
         self._in_flight = 0
         # key -> (count_in_window, window_start_monotonic)
-        self._window: dict[str, tuple[int, float]] = {}
+        self._window: OrderedDict[str, tuple[int, float]] = OrderedDict()
 
     def check_rate(self, key: str) -> None:
         """Raise RateLimitError if ``key`` exceeded its per-minute budget."""
@@ -33,10 +41,15 @@ class RequestLimiter:
             count, start = 0, now
             # Prune all expired entries to prevent unbounded memory growth when
             # many unique keys (e.g. rotating Bearer tokens) hit a long-lived server.
-            self._window = {k: v for k, v in self._window.items() if now - v[1] < 60.0}
+            self._window = OrderedDict(
+                (k, v) for k, v in self._window.items() if now - v[1] < 60.0
+            )
         if count >= self._rpm:
             raise RateLimitError()
         self._window[key] = (count + 1, start)
+        self._window.move_to_end(key)
+        while len(self._window) > _WINDOW_MAX_KEYS:
+            self._window.popitem(last=False)
 
     def acquire(self) -> bool:
         """Reserve a concurrency slot. Raise OverloadedError when full.

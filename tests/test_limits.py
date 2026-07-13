@@ -39,6 +39,20 @@ def test_rate_window_prunes_stale_entries() -> None:
     assert len(limiter._window) == 1
 
 
+def test_rate_window_bounded_when_keys_never_repeat() -> None:
+    """Distinct, never-reused keys (e.g. rotating Bearer tokens) must not grow
+    _window without bound: the expiry-based prune never fires for a key that's
+    only ever seen once, so a hard LRU cap is the actual backstop."""
+    from openfusion.limits import _WINDOW_MAX_KEYS
+
+    limiter = RequestLimiter(LimitsConfig(rate_limit_per_minute=100))
+    for i in range(_WINDOW_MAX_KEYS + 500):
+        limiter.check_rate(f"key-{i}")
+    assert len(limiter._window) == _WINDOW_MAX_KEYS
+    # The most recently used key must survive eviction, not an arbitrary one.
+    assert f"key-{_WINDOW_MAX_KEYS + 499}" in limiter._window
+
+
 def test_concurrency_cap_rejects_when_full() -> None:
     limiter = RequestLimiter(LimitsConfig(max_in_flight=1))
     first = limiter.acquire()
