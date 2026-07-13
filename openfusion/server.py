@@ -487,6 +487,7 @@ def create_app(
                             cached_hit["content"], cached_hit.get("usage"), model_name
                         ),
                         media_type="text/event-stream",
+                        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
                     )
                     return _attach_release(cached, limiter, acquired)
                 payload = cached_response_dict(
@@ -593,7 +594,11 @@ async def _pass_through(
                 _record_request("pass_through", outcome, started)
                 _record_outcome("pass_through", outcome, body)
 
-        return StreamingResponse(event_stream(), media_type="text/event-stream")
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     if not isinstance(result, dict):
         raise UpstreamError("Expected JSON upstream response")
@@ -646,7 +651,11 @@ async def _pipeline_stream(
         lambda cancel_event: pipeline_and_stream(body, config, client, cancel_event=cancel_event),
         on_finish,
     )
-    return StreamingResponse(lines, media_type="text/event-stream")
+    return StreamingResponse(
+        lines,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 async def _fusion_stream(
@@ -676,7 +685,11 @@ async def _fusion_stream(
     )
     if on_complete is not None:
         lines = capture_stream(lines, on_complete)
-    return StreamingResponse(lines, media_type="text/event-stream")
+    return StreamingResponse(
+        lines,
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 async def _watch_disconnect(request: Request, cancel_event: asyncio.Event) -> None:
