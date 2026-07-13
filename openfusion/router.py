@@ -13,7 +13,7 @@ import logging
 from enum import StrEnum
 from typing import Any
 
-from openfusion.config import RouteModel, RouterConfig, RouterMode, Tier
+from openfusion.config import PanelMember, RouteModel, RouterConfig, RouterMode, Tier
 from openfusion.cost import RequestPhase
 from openfusion.outcomes import OutcomeStore
 from openfusion.upstream import UpstreamClient
@@ -145,7 +145,7 @@ def route(
 
 
 async def _call_classifier(
-    request: dict[str, Any], classifier: RouteModel, client: UpstreamClient
+    request: dict[str, Any], classifier: PanelMember, client: UpstreamClient
 ) -> str | None:
     """Call the classifier model and return its raw reply text, or None on any
     failure (bad call, non-dict payload, no choices) — logging and recording
