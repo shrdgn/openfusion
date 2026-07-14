@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -175,5 +175,215 @@ describe("App", () => {
     expect(
       screen.getByText(/Keys are kept only in this server's memory/),
     ).toBeInTheDocument();
+  });
+
+  it("tracks panel progress through panel_member completion into synthesis", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onProgress?.({ stage: "panel", models: ["openai/gpt-4o", "anthropic/claude-3.5-sonnet"], total: 2 });
+        handlers.onProgress?.({ stage: "panel_member", completed: 1, ok: true });
+        handlers.onProgress?.({ stage: "panel_member", completed: 2, ok: false });
+        handlers.onProgress?.({ stage: "synthesis", judge: "google/gemini-1.5-pro" });
+        handlers.onContent?.("final answer");
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    expect(await screen.findByText(/Querying panel — 2\/2 answered/)).toBeInTheDocument();
+    expect(screen.getByText(/1 failed/)).toBeInTheDocument();
+    expect(screen.getByText(/Synthesizing with google\/gemini-1.5-pro/)).toBeInTheDocument();
+    expect(await screen.findByText("final answer")).toBeInTheDocument();
+  });
+
+  it("renders each panel member's answer in the side-by-side grid", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onPanelAnswer?.({ model: "openai/gpt-4o", label: "A", content: "answer one" });
+        handlers.onPanelAnswer?.({
+          model: "anthropic/claude-3.5-sonnet",
+          label: "B",
+          content: "answer two",
+        });
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    expect(await screen.findByText("Panel · 2 models answered")).toBeInTheDocument();
+    expect(screen.getByText("answer one")).toBeInTheDocument();
+    expect(screen.getByText("answer two")).toBeInTheDocument();
+  });
+
+  it("copies the fused answer to the clipboard", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn();
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("copy me");
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    await screen.findByText("copy me");
+    await user.click(screen.getByRole("button", { name: "Copy answer" }));
+
+    expect(writeText).toHaveBeenCalledWith("copy me");
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
+  });
+
+  it("renders analysis entries, including list values, and toggles the card open/closed", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onAnalysis?.({
+          consensus: "Everyone agrees",
+          blind_spots: ["missed edge case", "no citations"],
+        });
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    expect(await screen.findByText("Everyone agrees")).toBeInTheDocument();
+    expect(screen.getByText("missed edge case")).toBeInTheDocument();
+    expect(screen.getByText("blind spots")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /Analysis — consensus, contradictions, blind spots/ }),
+    );
+    expect(screen.queryByText("Everyone agrees")).not.toBeInTheDocument();
+  });
+
+  it("falls back to a single raw entry when analysis isn't structured", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onAnalysis?.({ raw: "unstructured analysis text" });
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    expect(await screen.findByText("unstructured analysis text")).toBeInTheDocument();
+  });
+
+  it("shows token/cost/panel usage totals once the run reports usage", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onUsage?.({
+          total: { total_tokens: 500, cost: 0.0123 },
+          panel: ["a", "b"],
+        });
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "hi");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    expect(await screen.findByText("500 tokens")).toBeInTheDocument();
+    expect(screen.getByText("$0.0123")).toBeInTheDocument();
+    expect(screen.getByText("2 panel members + judge")).toBeInTheDocument();
+  });
+
+  it("lets the user pick a suggested model, add a chip, and remove one", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+
+    render(<App />);
+    const firstChip = await screen.findByDisplayValue("openai/gpt-4o");
+    await user.click(firstChip);
+
+    const suggestion = await screen.findByRole("button", { name: "openai/gpt-4o-mini" });
+    await user.click(suggestion);
+    expect(screen.getByDisplayValue("openai/gpt-4o-mini")).toBeInTheDocument();
+
+    const chipsBefore = screen.getAllByPlaceholderText("provider/model");
+    await user.click(screen.getByRole("button", { name: "Add model" }));
+    expect(screen.getAllByPlaceholderText("provider/model")).toHaveLength(chipsBefore.length + 1);
+
+    const removeButtons = screen.getAllByRole("button", { name: "Remove model" });
+    await user.click(removeButtons[0]);
+    expect(screen.queryByDisplayValue("openai/gpt-4o-mini")).not.toBeInTheDocument();
+  });
+
+  it("does not let the panel be edited when the server disallows overrides", async () => {
+    getConfig.mockResolvedValue(baseConfig({ allow_request_overrides: false }));
+    render(<App />);
+
+    await screen.findByText("openai/gpt-4o");
+    expect(screen.queryByRole("button", { name: "Add model" })).not.toBeInTheDocument();
+    expect(
+      await screen.findByText(/This server uses a fixed config/),
+    ).toBeInTheDocument();
+  });
+
+  it("switches to the budget preset and back to custom on manual edits", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    await user.click(screen.getByRole("tab", { name: "Budget" }));
+    expect(screen.getAllByDisplayValue("openai/gpt-4o-mini")).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: "Budget" })).toHaveAttribute("aria-selected", "true");
+
+    await user.click(screen.getByRole("button", { name: "Add model" }));
+    expect(screen.getByRole("tab", { name: "Custom" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("settings dialog: disables key entry on a fixed-key server and edits max tokens / gateway token", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig({ allow_ui_api_key: false }));
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.click(screen.getByRole("button", { name: /Settings/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(
+      within(dialog).getByText(/This server is configured with a fixed key/),
+    ).toBeInTheDocument();
+    expect(within(dialog).queryByPlaceholderText("sk-or-v1-…")).not.toBeInTheDocument();
+
+    await user.selectOptions(within(dialog).getByLabelText(/Response length/), "2048");
+    expect(within(dialog).getByLabelText(/Response length/)).toHaveValue("2048");
+
+    await user.type(within(dialog).getByLabelText(/Gateway token/), "secret-token");
+    expect(within(dialog).getByLabelText(/Gateway token/)).toHaveValue("secret-token");
+
+    expect(within(dialog).getByText(/Active server: 2 panel models/)).toBeInTheDocument();
   });
 });

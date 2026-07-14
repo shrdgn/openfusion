@@ -55,9 +55,9 @@ jobs:
         working-directory: web
         run: npm ci
 
-      - name: Vitest
+      - name: Vitest with coverage
         working-directory: web
-        run: npm test
+        run: npm run test:coverage
 
       - name: Build UI
         working-directory: web

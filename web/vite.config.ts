@@ -15,5 +15,17 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["./src/lib/__tests__/setup.ts"],
+    coverage: {
+      provider: "v8",
+      include: ["src/**/*.{ts,tsx}"],
+      // main.tsx is the React bootstrap entrypoint (render() call); nothing to unit-test.
+      exclude: ["src/main.tsx"],
+      thresholds: {
+        statements: 90,
+        branches: 70,
+        functions: 85,
+        lines: 90,
+      },
+    },
   },
 });

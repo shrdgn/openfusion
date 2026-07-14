@@ -68,6 +68,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The playground's TypeScript client (`web/src/lib/api.ts`, `App.tsx`) now
   types request/response payloads (`ChatPayload`, `UsagePayload`) instead of
   `any`, catching shape mismatches at compile time.
+- The playground's `App.tsx` test coverage went from 58% to 93% of statements
+  (settings dialog, progress panel, panel grid, copy button, model-suggestion
+  chips, and analysis/usage cards are now exercised); CI now runs `vitest`
+  with coverage and fails under 90%/70%/85%/90% (statements/branches/
+  functions/lines), matching the backend's existing coverage gate.
 
 ## [0.1.0] — 2026-06-17
 

@@ -1083,7 +1083,11 @@ function ModelChip({
         </button>
       )}
       {onRemove && (
-        <button onClick={onRemove} className="text-muted-foreground hover:text-destructive">
+        <button
+          onClick={onRemove}
+          aria-label="Remove model"
+          className="text-muted-foreground hover:text-destructive"
+        >
           <X className="h-3.5 w-3.5" />
         </button>
       )}
