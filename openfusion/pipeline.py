@@ -6,7 +6,7 @@ import copy
 from collections.abc import AsyncIterator
 from typing import Any
 
-from openfusion.config import OpenFusionConfig, PipelineStepUse
+from openfusion.config import OpenFusionConfig, PanelMember, PipelineStepUse
 from openfusion.errors import InvalidRequestError, UpstreamError
 from openfusion.panel import gather_panel
 from openfusion.synthesize import synthesize
@@ -68,6 +68,24 @@ async def _collect_stream(
     return "".join(parts), usage
 
 
+async def _open_solo_stream(
+    client: UpstreamClient,
+    solo_member: PanelMember,
+    solo_body: dict[str, Any],
+    *,
+    timeout: float | None,
+    phase: str,
+) -> AsyncIterator[dict[str, Any]]:
+    """Issue a streaming solo-step chat completion; raise if the upstream didn't stream."""
+    solo_body["stream"] = True
+    stream = await client.chat_completion(
+        solo_member, solo_body, stream=True, timeout=timeout, phase=phase
+    )
+    if not hasattr(stream, "__aiter__"):
+        raise UpstreamError("Expected streaming response from solo step")
+    return stream  # type: ignore[return-value]
+
+
 async def run_pipeline(
     request_body: dict[str, Any],
     config: OpenFusionConfig,
@@ -119,22 +137,18 @@ async def run_pipeline(
             if step.model is not None:
                 pass_through = pass_through.model_copy(update={"model": step.model})
 
-            from openfusion.config import PanelMember
             solo_member = PanelMember(
                 base_url=pass_through.base_url,
                 api_key=pass_through.api_key,
                 model=pass_through.model,
             )
             solo_body = {**step_body, "model": solo_member.model}
+            stream = await _open_solo_stream(
+                client, solo_member, solo_body, timeout=timeout, phase=step.name
+            )
 
             if is_last:
-                solo_body["stream"] = True
-                stream = await client.chat_completion(
-                    solo_member, solo_body, stream=True, timeout=timeout, phase=step.name
-                )
-                if not hasattr(stream, "__aiter__"):
-                    raise UpstreamError("Expected streaming response from solo step")
-                async for chunk in stream:  # type: ignore[union-attr]
+                async for chunk in stream:
                     choices = chunk.get("choices") or []
                     delta_text = ""
                     finish_reason = None
@@ -146,11 +160,5 @@ async def run_pipeline(
                         yield delta_text, usage, finish_reason
                 return
 
-            solo_body["stream"] = True
-            stream = await client.chat_completion(
-                solo_member, solo_body, stream=True, timeout=timeout, phase=step.name
-            )
-            if not hasattr(stream, "__aiter__"):
-                raise UpstreamError("Expected streaming response from solo step")
-            text, _usage = await _collect_stream(stream)  # type: ignore[arg-type]
+            text, _usage = await _collect_stream(stream)
             outputs[step.name] = text
