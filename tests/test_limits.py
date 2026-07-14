@@ -5,7 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from openfusion.config import LimitsConfig, OpenFusionConfig
+from openfusion.config import GatewayAuthConfig, LimitsConfig, OpenFusionConfig
 from openfusion.errors import OverloadedError, RateLimitError
 from openfusion.limits import RequestLimiter
 from openfusion.server import create_app
@@ -105,6 +105,75 @@ async def test_server_rate_limit_returns_429(
     assert first.status_code == 200
     assert second.status_code == 429
     assert second.json()["error"]["code"] == "rate_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_server_rate_limit_not_bypassable_by_rotating_bearer_tokens(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    """Without a configured gateway.api_keys allowlist, any Bearer value is
+    unauthenticated -- a client could otherwise mint a fresh rate-limit bucket
+    per request just by sending a new token each time. All such traffic must
+    share one 'anonymous' bucket instead, so rate_limit_per_minute is an actual
+    cap rather than one an attacker can defeat by rotating headers."""
+    test_config.limits = LimitsConfig(rate_limit_per_minute=1)
+    assert not test_config.gateway.api_keys
+    app = create_app(test_config)
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {"model": "pass-model", "messages": [{"role": "user", "content": "hi"}]}
+        first = await http_client.post(
+            "/v1/chat/completions", json=payload, headers={"Authorization": "Bearer attacker-1"}
+        )
+        second = await http_client.post(
+            "/v1/chat/completions", json=payload, headers={"Authorization": "Bearer attacker-2"}
+        )
+    await app.state.upstream_client.aclose()
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "rate_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_server_rate_limit_still_per_key_when_gateway_allowlist_set(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    """A validated gateway key still gets its own independent rate-limit budget."""
+    test_config.limits = LimitsConfig(rate_limit_per_minute=1)
+    test_config.gateway = GatewayAuthConfig(api_keys=["key-a", "key-b"])
+    app = create_app(test_config)
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {"model": "pass-model", "messages": [{"role": "user", "content": "hi"}]}
+        first = await http_client.post(
+            "/v1/chat/completions", json=payload, headers={"Authorization": "Bearer key-a"}
+        )
+        second_same_key = await http_client.post(
+            "/v1/chat/completions", json=payload, headers={"Authorization": "Bearer key-a"}
+        )
+        second_other_key = await http_client.post(
+            "/v1/chat/completions", json=payload, headers={"Authorization": "Bearer key-b"}
+        )
+    await app.state.upstream_client.aclose()
+
+    assert first.status_code == 200
+    assert second_same_key.status_code == 429
+    assert second_other_key.status_code == 200
 
 
 @pytest.mark.asyncio

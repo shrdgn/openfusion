@@ -122,8 +122,31 @@ def _requires_pass_through_tools(body: dict[str, Any]) -> bool:
 
 
 def _client_key(authorization: str | None) -> str:
-    """Identity for rate limiting: the gateway token, or 'anonymous'."""
+    """Per-client identity for the runtime API key store: the caller-supplied
+    Bearer token, or 'anonymous'. Not safe to reuse for rate limiting -- see
+    _rate_limit_key().
+    """
     if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ").strip()
+        if token:
+            return token
+    return "anonymous"
+
+
+def _rate_limit_key(config: OpenFusionConfig, authorization: str | None) -> str:
+    """Identity for rate limiting: the gateway token, or 'anonymous'.
+
+    Only trusts the caller-supplied Bearer value once it's been checked against
+    a configured ``gateway.api_keys`` allowlist (call after
+    ``_validate_gateway_auth``, which raises on an unlisted token when the
+    allowlist is set). Without an allowlist, any string is "valid", so a client
+    could otherwise mint a fresh rate-limit bucket per request just by sending a
+    new, unvalidated Bearer value each time -- defeating the per-key limit
+    entirely. In that mode all traffic instead shares one 'anonymous' bucket, so
+    rate_limit_per_minute is an actual cap rather than one an attacker can
+    trivially bypass by rotating headers.
+    """
+    if config.gateway.api_keys and authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ").strip()
         if token:
             return token
@@ -380,7 +403,7 @@ def create_app(
         body: dict[str, Any] = {}
         try:
             _validate_gateway_auth(cfg, authorization)
-            limiter.check_rate(_client_key(authorization))
+            limiter.check_rate(_rate_limit_key(cfg, authorization))
             parsed_body = await request.json()
             if not isinstance(parsed_body, dict):
                 raise InvalidRequestError("Request body must be a JSON object")

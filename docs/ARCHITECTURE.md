@@ -101,7 +101,7 @@ server-side. `GET /v1/config` exposes the active panel/judge and onboarding flag
 | SSRF via `base_url` | Config is operator-controlled; document trust boundary | Optional URL allowlist for enterprise |
 | Token burn on cancel | Cancel panel/judge tasks on client disconnect | Integration test for cancellation |
 | Judge context overflow | Truncate longest panel answers first (`max_panel_tokens`) | Tokenizer-accurate counting |
-| Concurrency / DoS | `limits.py` enforces an optional `max_in_flight` cap (`OverloadedError`/503) and a per-key `rate_limit_per_minute` window (`RateLimitError`/429); both off (unlimited) by default | Limits are in-process/best-effort, not a substitute for an edge proxy or a distributed limiter |
+| Concurrency / DoS | `limits.py` enforces an optional `max_in_flight` cap (`OverloadedError`/503) and a per-key `rate_limit_per_minute` window (`RateLimitError`/429); both off (unlimited) by default. The rate-limit key is only trusted from an *authenticated* Bearer token (checked against `gateway.api_keys`) -- without an allowlist configured, all traffic shares one `anonymous` bucket so a client can't bypass the limit by rotating headers (`server.py::_rate_limit_key`) | Limits are in-process/best-effort, not a substitute for an edge proxy or a distributed limiter |
 
 ## Testing layers
 
