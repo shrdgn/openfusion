@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import {
   ArrowUp,
   Check,
@@ -303,12 +304,14 @@ export default function App() {
       onProgress: (e: ProgressEvent) => handleProgress(e),
       onPanelAnswer: (a: PanelAnswer) => {
         capturedAnswers.push(a);
-        setPanelAnswers((prev) => [...prev.filter((p) => p.model !== a.model), a]);
+        flushSync(() => setPanelAnswers((prev) => [...prev.filter((p) => p.model !== a.model), a]));
       },
       onContent: (text) => {
         answerRef.current += text;
-        setStreamingAnswer(answerRef.current);
-        setProgress((p) => (p ? { ...p, streaming: true } : p));
+        flushSync(() => {
+          setStreamingAnswer(answerRef.current);
+          setProgress((p) => (p ? { ...p, streaming: true } : p));
+        });
       },
       onAnalysis: (a) => {
         finalAnalysis = a;
@@ -349,26 +352,28 @@ export default function App() {
   }
 
   function handleProgress(e: ProgressEvent) {
-    if (e.stage === "panel") {
-      setProgress({
-        stage: "panel",
-        models: e.models || [],
-        judge: e.judge ?? null,
-        total: e.total || (e.models ? e.models.length : 0),
-        completed: 0,
-        failed: 0,
-        streaming: false,
-      });
-    } else if (e.stage === "panel_member") {
-      setProgress((p) =>
-        p
-          ? { ...p, completed: e.completed ?? p.completed, failed: p.failed + (e.ok ? 0 : 1) }
-          : p,
-      );
-    } else if (e.stage === "synthesis" || e.stage === "vote" || e.stage === "ranked") {
-      setProgress((p) => (p ? { ...p, stage: "synthesis", judge: e.judge ?? p.judge } : p));
-    }
-    setStatus(e.message || "");
+    flushSync(() => {
+      if (e.stage === "panel") {
+        setProgress({
+          stage: "panel",
+          models: e.models || [],
+          judge: e.judge ?? null,
+          total: e.total ?? (e.models ? e.models.length : 0),
+          completed: 0,
+          failed: 0,
+          streaming: false,
+        });
+      } else if (e.stage === "panel_member") {
+        setProgress((p) => {
+          if (!p) return p;
+          const total = e.total != null && e.total > p.total ? e.total : p.total;
+          return { ...p, completed: e.completed ?? p.completed, total, failed: p.failed + (e.ok ? 0 : 1) };
+        });
+      } else if (e.stage === "synthesis" || e.stage === "vote" || e.stage === "ranked") {
+        setProgress((p) => (p ? { ...p, stage: "synthesis", judge: e.judge ?? p.judge } : p));
+      }
+      setStatus(e.message || "");
+    });
   }
 
   function startNewConversation() {
