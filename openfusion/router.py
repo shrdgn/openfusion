@@ -13,7 +13,7 @@ import logging
 from enum import StrEnum
 from typing import Any
 
-from openfusion.config import RouteModel, RouterConfig, RouterMode, Tier
+from openfusion.config import PanelMember, RouteModel, RouterConfig, RouterMode, Tier
 from openfusion.cost import RequestPhase
 from openfusion.outcomes import OutcomeStore
 from openfusion.upstream import UpstreamClient
@@ -144,6 +144,28 @@ def route(
     return RouteDecision.SOLO
 
 
+async def _call_classifier(
+    request: dict[str, Any], classifier: PanelMember, client: UpstreamClient
+) -> str | None:
+    """Call the classifier model and return its raw reply text, or None on any
+    failure (bad call, non-dict payload, no choices) — logging and recording
+    the fallback once so callers can just check for None and fall back."""
+    try:
+        payload = await client.chat_completion(
+            classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
+        )
+    except Exception:  # noqa: BLE001 - never fail routing on a classifier error
+        _log.warning("router: classifier call failed, falling back to heuristic")
+        _record_fallback()
+        return None
+    if not isinstance(payload, dict):
+        _log.warning("router: classifier returned unexpected payload type, falling back to heuristic")  # noqa: E501
+        _record_fallback()
+        return None
+    choices = payload.get("choices") or []
+    return ((choices[0].get("message") or {}).get("content") if choices else "") or ""
+
+
 async def route_async(
     body: dict[str, Any],
     config: RouterConfig,
@@ -167,21 +189,9 @@ async def route_async(
         "max_tokens": config.classifier_max_tokens,
         "temperature": 0,
     }
-    try:
-        payload = await client.chat_completion(
-            classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
-        )
-    except Exception:  # noqa: BLE001 - never fail routing on a classifier error
-        _log.warning("router: classifier call failed, falling back to heuristic")
-        _record_fallback()
+    text = await _call_classifier(request, classifier, client)
+    if text is None:
         return route(body, config)
-
-    if not isinstance(payload, dict):
-        _log.warning("router: classifier returned unexpected payload type, falling back to heuristic")  # noqa: E501  # noqa: E501
-        _record_fallback()
-        return route(body, config)
-    choices = payload.get("choices") or []
-    text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
     upper = text.upper()
     if "SOLO" in upper and "FUSE" not in upper:
         return RouteDecision.SOLO
@@ -216,20 +226,9 @@ async def _classify_route(
         "max_tokens": 24,
         "temperature": 0,
     }
-    try:
-        payload = await client.chat_completion(
-            classifier, request, stream=False, phase=RequestPhase.PASS_THROUGH
-        )
-    except Exception:  # noqa: BLE001 - never fail routing on a classifier error
-        _log.warning("router: classifier call failed, falling back to heuristic")
-        _record_fallback()
+    text = await _call_classifier(request, classifier, client)
+    if text is None:
         return None
-    if not isinstance(payload, dict):
-        _log.warning("router: classifier returned unexpected payload type, falling back to heuristic")  # noqa: E501
-        _record_fallback()
-        return None
-    choices = payload.get("choices") or []
-    text = ((choices[0].get("message") or {}).get("content") if choices else "") or ""
     if "FUSE" in text.upper():
         return RouteDecision.FUSE, None
     lowered = text.lower()
