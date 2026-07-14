@@ -7,9 +7,12 @@ import {
   Copy,
   Github,
   GitBranch,
+  FileText,
+  Image,
   KeyRound,
   Loader2,
   MessageSquare,
+  Paperclip,
   Plus,
   Settings,
   Sparkles,
@@ -35,6 +38,7 @@ import {
   type ActiveConfig,
   type ChatPayload,
   type ChatMessage,
+  type ContentBlock,
   errorMessage,
   type Estimate,
   getConfig,
@@ -105,6 +109,38 @@ function titleFromPrompt(prompt: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Attached files
+// ---------------------------------------------------------------------------
+
+interface AttachedFile {
+  id: string;
+  name: string;
+  content: string;
+  isImage: boolean;
+}
+
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+function readFileAsText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result as string);
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Progress state
 // ---------------------------------------------------------------------------
 
@@ -148,6 +184,8 @@ export default function App() {
   const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const answerRef = useRef("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
 
   // Conversations
   const [conversations, setConversations] = useState<Conversation[]>(() => loadConversations());
@@ -212,7 +250,7 @@ export default function App() {
       setEstimate(null);
       return;
     }
-    const messages = buildMessages(turns, prompt);
+    const messages = buildMessages(turns, prompt, attachedFiles);
     const payload: ChatPayload = { messages };
     if (allowOverrides) {
       payload.openfusion = {
@@ -276,7 +314,8 @@ export default function App() {
     setUsage(null);
 
     const currentTurns = conversations.find((c) => c.id === convId)?.turns ?? [];
-    const messages = buildMessages(currentTurns, prompt);
+    const messages = buildMessages(currentTurns, prompt, attachedFiles);
+    setAttachedFiles([]);
 
     const payload: ChatPayload = {
       model: config?.fusion_model || "openfusion",
@@ -294,6 +333,7 @@ export default function App() {
     }
 
     const submittedPrompt = prompt;
+    const submittedFiles = attachedFiles;
     setPrompt("");
 
     let finalAnalysis: Record<string, unknown> | null = null;
@@ -321,7 +361,7 @@ export default function App() {
         finalUsage = u;
         setUsage(u);
       },
-      onError: (msg) => { setStatus("Error: " + msg); setBusy(false); setPrompt(submittedPrompt); },
+      onError: (msg) => { setStatus("Error: " + msg); setBusy(false); setPrompt(submittedPrompt); setAttachedFiles(submittedFiles); },
     });
 
     const finalAnswer = answerRef.current;
@@ -374,6 +414,22 @@ export default function App() {
       }
       setStatus(e.message || "");
     });
+  }
+
+  async function handleFilesPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    const loaded: AttachedFile[] = [];
+    for (const file of files) {
+      if (file.size > MAX_FILE_BYTES) {
+        setStatus(`File "${file.name}" is too large (max 10 MB)`);
+        continue;
+      }
+      const isImage = IMAGE_TYPES.includes(file.type);
+      const content = isImage ? await readFileAsDataURL(file) : await readFileAsText(file);
+      loaded.push({ id: newId(), name: file.name, content, isImage });
+    }
+    setAttachedFiles((prev) => [...prev, ...loaded]);
   }
 
   function startNewConversation() {
@@ -687,11 +743,55 @@ export default function App() {
                     }}
                   />
 
+                  {attachedFiles.length > 0 && (
+                    <div className="flex flex-wrap gap-2">
+                      {attachedFiles.map((f) => (
+                        <div
+                          key={f.id}
+                          className="flex items-center gap-1.5 rounded-full border bg-accent px-2.5 py-1 text-xs"
+                        >
+                          {f.isImage ? (
+                            <Image className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          ) : (
+                            <FileText className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          )}
+                          <span className="max-w-[160px] truncate">{f.name}</span>
+                          <button
+                            onClick={() =>
+                              setAttachedFiles((prev) => prev.filter((x) => x.id !== f.id))
+                            }
+                            className="ml-0.5 text-muted-foreground hover:text-foreground"
+                            aria-label={`Remove ${f.name}`}
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept="text/*,image/png,image/jpeg,image/gif,image/webp,.md,.json,.csv,.yaml,.yml,.toml,.ts,.tsx,.js,.jsx,.py,.rs,.go,.java,.c,.cpp,.sh"
+                    className="hidden"
+                    onChange={handleFilesPicked}
+                  />
+
                   <div className="flex items-center gap-4 border-t pt-3">
                     <label className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Switch checked={webSearch} onCheckedChange={setWebSearch} />
                       Web search
                     </label>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      title="Attach files"
+                      aria-label="Attach files"
+                    >
+                      <Paperclip className="h-4 w-4" />
+                    </button>
                     <div className="flex-1" />
                     {estimate && (
                       <span className="text-xs text-muted-foreground" title="Estimated pre-run cost">
@@ -731,13 +831,29 @@ export default function App() {
 // Build messages array for the API (include prior turns as context)
 // ---------------------------------------------------------------------------
 
-function buildMessages(turns: ConversationTurn[], currentPrompt: string): ChatMessage[] {
+function buildMessages(
+  turns: ConversationTurn[],
+  currentPrompt: string,
+  files: AttachedFile[] = [],
+): ChatMessage[] {
   const messages: ChatMessage[] = [];
   for (const turn of turns) {
     messages.push({ role: "user", content: turn.prompt });
     if (turn.answer) messages.push({ role: "assistant", content: turn.answer });
   }
-  messages.push({ role: "user", content: currentPrompt });
+  if (files.length === 0) {
+    messages.push({ role: "user", content: currentPrompt });
+  } else {
+    const blocks: ContentBlock[] = [{ type: "text", text: currentPrompt }];
+    for (const f of files) {
+      if (f.isImage) {
+        blocks.push({ type: "image_url", image_url: { url: f.content } });
+      } else {
+        blocks.push({ type: "text", text: `\n\nFile: ${f.name}\n\`\`\`\n${f.content}\n\`\`\`` });
+      }
+    }
+    messages.push({ role: "user", content: blocks });
+  }
   return messages;
 }
 

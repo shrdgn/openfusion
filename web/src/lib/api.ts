@@ -29,9 +29,13 @@ export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 export interface ChatMessage {
   role: string;
-  content: string;
+  content: string | ContentBlock[];
 }
 
 export interface OpenFusionRequestOverride {

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
@@ -159,6 +159,54 @@ describe("App", () => {
 
     expect(await screen.findByText("Error: upstream exploded")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Fuse/ })).not.toBeDisabled();
+  });
+
+  it("attaches a text file and includes it in the payload", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation((_p: unknown, _t: unknown, h: StreamHandlers) => {
+      h.onContent?.("done");
+      return Promise.resolve();
+    });
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["hello file content"], "notes.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+
+    expect(await screen.findByText("notes.txt")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "summarise this");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    await waitFor(() => expect(streamFusion).toHaveBeenCalledTimes(1));
+    const [payload] = streamFusion.mock.calls[0];
+    const lastMsg = payload.messages[payload.messages.length - 1];
+    expect(Array.isArray(lastMsg.content)).toBe(true);
+    const blocks = lastMsg.content as Array<{ type: string; text?: string }>;
+    expect(blocks[0]).toEqual({ type: "text", text: "summarise this" });
+    expect(blocks[1].type).toBe("text");
+    expect(blocks[1].text).toContain("hello file content");
+  });
+
+  it("removes an attached file when its × button is clicked", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["data"], "remove-me.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+
+    expect(await screen.findByText("remove-me.txt")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove remove-me.txt" }));
+    expect(screen.queryByText("remove-me.txt")).not.toBeInTheDocument();
   });
 
   it("opens the settings dialog from the header button", async () => {
