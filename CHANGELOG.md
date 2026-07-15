@@ -65,6 +65,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 - The Docker image now runs `openfusion` as an unprivileged `openfusion` user
   instead of root.
+- The Docker image now declares a `HEALTHCHECK` against `/healthz` (so
+  orchestrators can detect an unresponsive container) and ships a
+  `.dockerignore` to keep `.git`, tests, docs, and other non-runtime files out
+  of the build context.
 - The playground's TypeScript client (`web/src/lib/api.ts`, `App.tsx`) now
   types request/response payloads (`ChatPayload`, `UsagePayload`) instead of
   `any`, catching shape mismatches at compile time.
