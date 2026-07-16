@@ -41,6 +41,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- The judge (synthesis) call now retries a transient 429 with the same backoff
+  panel members already use, instead of failing the whole fused request after
+  every panel member succeeded. Retries only cover the connection/first-chunk
+  phase, before any text has streamed to the caller.
 - `/v1/chat/completions` now returns a clean 400 `invalid_request_error`
   ("Request body must be a JSON object") for a non-object JSON body (e.g. a
   list or string), instead of crashing with an unhandled 500 while recording

@@ -8,6 +8,7 @@ from openfusion.config import JudgeConfig, OpenFusionConfig, PanelMember, ToolsC
 from openfusion.errors import UpstreamError
 from openfusion.panel import MemberResponse, PanelResult
 from openfusion.synthesize import (
+    JUDGE_MAX_RETRIES,
     _extract_delta_content,
     _extract_finish_reason,
     build_judge_messages,
@@ -315,3 +316,98 @@ async def test_synthesize_yields_usage_chunk(monkeypatch) -> None:
 
     assert len(usages) == 1
     assert usages[0]["prompt_tokens"] == 10
+
+
+@pytest.mark.asyncio
+async def test_synthesize_retries_429_before_first_chunk_then_succeeds(monkeypatch) -> None:
+    """A transient 429 on the judge call should retry, not fail the whole fused request."""
+    calls = 0
+
+    async def _mock_chat_completion(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise UpstreamError("rate limited", status_code=429)
+
+        async def _gen():
+            yield {"choices": [{"delta": {"content": "ok"}, "finish_reason": None}]}
+            yield {"choices": [{"delta": {}, "finish_reason": "stop"}]}
+
+        return _gen()
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", _mock_chat_completion)
+    monkeypatch.setattr("openfusion.synthesize.asyncio.sleep", lambda _seconds: _no_delay())
+
+    deltas = []
+    async for delta, _usage, _finish_reason in synthesize(
+        {"messages": [{"role": "user", "content": "q"}]},
+        _panel_with("panel answer"),
+        _synth_config(),
+        client,
+    ):
+        deltas.append(delta)
+
+    assert calls == 2
+    assert deltas == ["ok", ""]
+
+
+@pytest.mark.asyncio
+async def test_synthesize_does_not_retry_429_after_chunks_already_yielded(monkeypatch) -> None:
+    """Once content has streamed to the caller, a later error must propagate as-is."""
+    calls = 0
+
+    async def _mock_chat_completion(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+
+        async def _gen():
+            yield {"choices": [{"delta": {"content": "partial"}, "finish_reason": None}]}
+            raise UpstreamError("rate limited mid-stream", status_code=429)
+
+        return _gen()
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", _mock_chat_completion)
+
+    deltas = []
+    with pytest.raises(UpstreamError, match="mid-stream"):
+        async for delta, _usage, _finish_reason in synthesize(
+            {"messages": [{"role": "user", "content": "q"}]},
+            _panel_with("panel answer"),
+            _synth_config(),
+            client,
+        ):
+            deltas.append(delta)
+
+    assert calls == 1
+    assert deltas == ["partial"]
+
+
+@pytest.mark.asyncio
+async def test_synthesize_gives_up_after_max_judge_retries(monkeypatch) -> None:
+    calls = 0
+
+    async def _mock_chat_completion(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        raise UpstreamError("still rate limited", status_code=429)
+
+    client = UpstreamClient()
+    monkeypatch.setattr(client, "chat_completion", _mock_chat_completion)
+    monkeypatch.setattr("openfusion.synthesize.asyncio.sleep", lambda _seconds: _no_delay())
+
+    with pytest.raises(UpstreamError, match="still rate limited"):
+        async for _ in synthesize(
+            {"messages": [{"role": "user", "content": "q"}]},
+            _panel_with("panel answer"),
+            _synth_config(),
+            client,
+        ):
+            pass
+
+    assert calls == JUDGE_MAX_RETRIES + 1
+
+
+async def _no_delay() -> None:
+    return None
