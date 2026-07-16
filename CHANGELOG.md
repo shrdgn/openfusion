@@ -73,6 +73,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   chips, and analysis/usage cards are now exercised); CI now runs `vitest`
   with coverage and fails under 90%/70%/85%/90% (statements/branches/
   functions/lines), matching the backend's existing coverage gate.
+- `openfusion/cli.py` is excluded from the coverage gate (it needs TTY/stdin
+  mocking that adds more noise than signal), which had left its argv parsing,
+  `main()` command dispatch, and config/API-key error paths with zero tests.
+  Added tests for `_ask_cli`, `run_ask`, `run_server`, `main`, and
+  `_models_markup` covering those paths, independent of the coverage gate.
 
 ## [0.1.0] — 2026-06-17
 
