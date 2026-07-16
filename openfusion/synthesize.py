@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
+import random
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -100,6 +102,45 @@ def _extract_finish_reason(chunk: dict[str, Any]) -> str | None:
     return reason if isinstance(reason, str) else None
 
 
+JUDGE_MAX_RETRIES = 3
+
+
+async def _judge_stream_with_retry(
+    client: UpstreamClient,
+    judge_member: JudgeConfig,
+    judge_body: dict[str, Any],
+    timeout: float | None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Open the judge stream, retrying transient 429s the same way panel members do.
+
+    Once a chunk has reached the caller the retry is no longer safe (the caller may
+    already be forwarding it downstream), so only a 429 raised before the first chunk
+    is retried; anything after that propagates as-is.
+    """
+    attempt = 0
+    while True:
+        yielded_any = False
+        try:
+            stream = await client.chat_completion(
+                judge_member,
+                judge_body,
+                stream=True,
+                timeout=timeout,
+                phase=RequestPhase.JUDGE,
+            )
+            if not hasattr(stream, "__aiter__"):
+                raise UpstreamError("Expected streaming judge response")
+            async for chunk in stream:
+                yielded_any = True
+                yield chunk
+            return
+        except UpstreamError as exc:
+            if yielded_any or exc.upstream_status_code != 429 or attempt >= JUDGE_MAX_RETRIES:
+                raise
+            attempt += 1
+            await asyncio.sleep(min(2**attempt + random.random(), 8.0))
+
+
 async def synthesize(
     request_body: dict[str, Any],
     panel: PanelResult,
@@ -138,17 +179,7 @@ async def synthesize(
     if config.tools.apply_to_judge:
         judge_body = apply_web_tools(judge_body, config.tools)
 
-    stream = await client.chat_completion(
-        judge_member,
-        judge_body,
-        stream=True,
-        timeout=timeout,
-        phase=RequestPhase.JUDGE,
-    )
-    if not hasattr(stream, "__aiter__"):
-        raise UpstreamError("Expected streaming judge response")
-
-    async for chunk in stream:
+    async for chunk in _judge_stream_with_retry(client, judge_member, judge_body, timeout):
         delta = _extract_delta_content(chunk)
         usage = extract_response_usage(chunk)
         finish_reason = _extract_finish_reason(chunk)
