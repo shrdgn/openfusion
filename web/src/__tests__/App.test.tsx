@@ -192,6 +192,36 @@ describe("App", () => {
     expect(blocks[1].text).toContain("hello file content");
   });
 
+  it("reports a status message and skips the file when reading it fails", async () => {
+    getConfig.mockResolvedValue(baseConfig());
+    class FailingFileReader {
+      onload: (() => void) | null = null;
+      onerror: ((err: unknown) => void) | null = null;
+      readAsText() {
+        setTimeout(() => this.onerror?.(new Error("boom")), 0);
+      }
+      readAsDataURL() {
+        setTimeout(() => this.onerror?.(new Error("boom")), 0);
+      }
+    }
+    vi.stubGlobal("FileReader", FailingFileReader);
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["data"], "unreadable.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+    fireEvent.change(fileInput);
+
+    expect(
+      await screen.findByText('Error: could not read file "unreadable.txt"'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("unreadable.txt")).not.toBeInTheDocument();
+
+    vi.unstubAllGlobals();
+  });
+
   it("removes an attached file when its × button is clicked", async () => {
     const user = userEvent.setup();
     getConfig.mockResolvedValue(baseConfig());

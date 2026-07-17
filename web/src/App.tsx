@@ -422,12 +422,16 @@ export default function App() {
     const loaded: AttachedFile[] = [];
     for (const file of files) {
       if (file.size > MAX_FILE_BYTES) {
-        setStatus(`File "${file.name}" is too large (max 10 MB)`);
+        setStatus(`Error: file "${file.name}" is too large (max 10 MB)`);
         continue;
       }
       const isImage = IMAGE_TYPES.includes(file.type);
-      const content = isImage ? await readFileAsDataURL(file) : await readFileAsText(file);
-      loaded.push({ id: newId(), name: file.name, content, isImage });
+      try {
+        const content = isImage ? await readFileAsDataURL(file) : await readFileAsText(file);
+        loaded.push({ id: newId(), name: file.name, content, isImage });
+      } catch {
+        setStatus(`Error: could not read file "${file.name}"`);
+      }
     }
     setAttachedFiles((prev) => [...prev, ...loaded]);
   }

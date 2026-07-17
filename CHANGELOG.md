@@ -41,6 +41,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- The playground no longer silently drops a file attachment (or the batch behind
+  it) when `FileReader` fails to read it — the failure is now caught per file and
+  surfaced as a status message, and the picker's "file too large" and "could not
+  read" messages (previously set but never actually rendered anywhere) now show
+  as an error banner like other failures.
 - `/v1/chat/completions` now returns a clean 400 `invalid_request_error`
   ("Request body must be a JSON object") for a non-object JSON body (e.g. a
   list or string), instead of crashing with an unhandled 500 while recording
