@@ -63,6 +63,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `anonymous` bucket instead of each request minting its own budget.
 
 ### Changed
+- `App.tsx`'s `startNewConversation` and `switchConversation` shared the same
+  six-line turn-state reset (`streamingAnswer`, `panelAnswers`, `progress`,
+  `status`, `analysis`, `usage`) duplicated verbatim; extracted into a single
+  `resetTurnState()` helper.
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
   building it, so a type error in `web/src/**` fails the build instead of
   silently passing through Vite's esbuild transform (which strips types

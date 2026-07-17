@@ -432,10 +432,7 @@ export default function App() {
     setAttachedFiles((prev) => [...prev, ...loaded]);
   }
 
-  function startNewConversation() {
-    const conv = newConversation();
-    setConversations((prev) => [conv, ...prev]);
-    setActiveId(conv.id);
+  function resetTurnState() {
     setStreamingAnswer("");
     setPanelAnswers([]);
     setProgress(null);
@@ -445,15 +442,16 @@ export default function App() {
     answerRef.current = "";
   }
 
+  function startNewConversation() {
+    const conv = newConversation();
+    setConversations((prev) => [conv, ...prev]);
+    setActiveId(conv.id);
+    resetTurnState();
+  }
+
   function switchConversation(id: string) {
     setActiveId(id);
-    setStreamingAnswer("");
-    setPanelAnswers([]);
-    setProgress(null);
-    setStatus("");
-    setAnalysis(null);
-    setUsage(null);
-    answerRef.current = "";
+    resetTurnState();
     setBusy(false);
   }
 
