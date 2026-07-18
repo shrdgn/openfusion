@@ -22,10 +22,12 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 | `upstream.py` | Shared httpx client for OpenAI-compatible APIs | Business logic about panels or judges |
 | `panel.py` | Parallel fan-out, timeouts, degrade, 429 retry, debate rounds | SSE framing |
 | `pipeline.py` | Sequential `strategy: pipeline` steps (`solo`/`fuse`), injecting each step's output into the next via `{step_name}` | SSE framing |
-| `synthesize.py` / `vote.py` / `ranked.py` | Aggregators: judge synthesis, majority vote, judge pick | SSE framing |
-| `synthesize.py` | Judge prompt assembly, yield text deltas only | SSE framing |
+| `synthesize.py` / `vote.py` / `ranked.py` | Aggregators: judge prompt assembly + text deltas, majority vote, judge pick | SSE framing |
 | `stream.py` | All OpenAI chunk/SSE framing, progress events, terminal usage | Judge prompt content decisions |
 | `metrics.py` | In-process counters/latency/token+cost registry, Prometheus text rendering | HTTP, upstream calls, prompt/secret handling |
+| `tools.py` | Injects OpenRouter server-side web-search/web-fetch tools into request bodies | Client-side function-tool execution |
+| `errors.py` | OpenAI-compatible error types and response helpers | HTTP routing, upstream calls |
+| `credentials.py` | Local CLI credential storage (`~/.config/openfusion/credentials`, `600` perms) | Server-side key handling |
 
 ## Request flow
 
