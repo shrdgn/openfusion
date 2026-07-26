@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  errorMessage,
   getConfig,
   getEstimate,
   setApiKey,
@@ -34,6 +35,17 @@ function handlers(): StreamHandlers & { events: unknown[] } {
 }
 
 const PAYLOAD: ChatPayload = { messages: [{ role: "user", content: "hi" }] };
+
+describe("errorMessage", () => {
+  it("returns the message of an Error instance", () => {
+    expect(errorMessage(new Error("boom"))).toBe("boom");
+  });
+
+  it("stringifies non-Error values", () => {
+    expect(errorMessage("plain string")).toBe("plain string");
+    expect(errorMessage(404)).toBe("404");
+  });
+});
 
 describe("streamFusion", () => {
   afterEach(() => {
@@ -125,6 +137,78 @@ describe("streamFusion", () => {
     const [kind, message] = h.events[0] as [string, string];
     expect(kind).toBe("error");
     expect(message).toMatch(/couldn't reach the openfusion server/i);
+  });
+
+  it("falls back to a generic message when a non-2xx response body isn't valid JSON", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("not json", { status: 500 })));
+    const h = handlers();
+    await streamFusion(PAYLOAD, undefined, h);
+    expect(h.events).toEqual([["error", "Request failed (500)"]]);
+  });
+
+  it("falls back to a generic upstream error message when the error chunk has no message", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(streamResponse(['data: {"error":{}}\n\n', "data: [DONE]\n\n"]))
+    );
+    const h = handlers();
+    await streamFusion(PAYLOAD, undefined, h);
+    expect(h.events).toEqual([["error", "upstream error"]]);
+  });
+
+  it("ignores delta chunks that carry no content (e.g. a finish_reason-only chunk)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+          "data: [DONE]\n\n",
+        ])
+      )
+    );
+    const h = handlers();
+    await streamFusion(PAYLOAD, undefined, h);
+    expect(h.events).toEqual([]);
+  });
+
+  it("ignores blank lines within an SSE block", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          '\ndata: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        ])
+      )
+    );
+    const h = handlers();
+    await streamFusion(PAYLOAD, undefined, h);
+    expect(h.events).toEqual([["content", "ok"]]);
+  });
+
+  it("ignores an SSE block that has no data line", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamResponse([
+          "event: progress\n\n",
+          'data: {"choices":[{"delta":{"content":"ok"}}]}\n\n',
+        ])
+      )
+    );
+    const h = handlers();
+    await streamFusion(PAYLOAD, undefined, h);
+    expect(h.events).toEqual([["content", "ok"]]);
+  });
+
+  it("flushes a final SSE block that has no trailing blank line", async () => {
+    // No `\n\n` terminator on the last chunk — relies on the post-loop flush of `buffer`.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(streamResponse(['data: {"choices":[{"delta":{"content":"tail"}}]}']))
+    );
+    const h = handlers();
+    await streamFusion(PAYLOAD, undefined, h);
+    expect(h.events).toEqual([["content", "tail"]]);
   });
 
   it("sends an Authorization header only when a token is provided", async () => {
