@@ -59,6 +59,7 @@ preset: budget   # or: quality
 # limits:
 #   max_in_flight: 64
 #   rate_limit_per_minute: 60
+#   max_request_bytes: 10000000
 
 gateway:
   api_keys: []

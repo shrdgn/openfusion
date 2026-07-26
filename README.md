@@ -199,6 +199,7 @@ For public deployments, bound load and spend (both default to `0` = unlimited):
 limits:
   max_in_flight: 64           # cap concurrent requests; over-limit returns 503
   rate_limit_per_minute: 60   # per gateway key (or per client when unauthenticated); over-limit returns 429
+  max_request_bytes: 10000000 # reject oversized bodies (Content-Length) before they're read; over-limit returns 413
 ```
 
 These are best-effort, single-process guards — pair them with provider-side budgets and, for
@@ -380,6 +381,9 @@ it talks only to the local `/v1` API, so provider keys never reach the browser. 
   `allow_ui_api_key`, on for the zero-config quick start),
 - pick a **Quality / Budget / Custom** panel and a "Fuse with" judge model,
 - toggle web search, send a prompt, and watch the **panel → synthesis** progress,
+- attach files (the paperclip button) — text/code files and images (PNG/JPEG/GIF/WebP), up to
+  10 MB each — sent alongside your prompt as multimodal content blocks; a file that's too large or
+  fails to read is reported inline instead of being silently dropped,
 - read the streamed answer plus the judge's **structured analysis** (consensus / contradictions /
   blind spots) and the **token + cost** breakdown.
 

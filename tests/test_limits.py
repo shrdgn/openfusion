@@ -177,6 +177,114 @@ async def test_server_rate_limit_still_per_key_when_gateway_allowlist_set(
 
 
 @pytest.mark.asyncio
+async def test_server_rejects_oversized_body_with_413(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    test_config.limits = LimitsConfig(max_request_bytes=1024)
+    app = create_app(test_config)
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {
+            "model": "pass-model",
+            "messages": [{"role": "user", "content": "x" * 2048}],
+        }
+        response = await http_client.post("/v1/chat/completions", json=payload)
+    await app.state.upstream_client.aclose()
+
+    assert response.status_code == 413
+    assert response.json()["error"]["code"] == "request_too_large"
+    # The oversized body must never reach the upstream mock.
+    assert mock_router.calls.call_count == 0
+
+
+@pytest.mark.asyncio
+async def test_max_body_size_middleware_ignores_malformed_content_length() -> None:
+    """A non-integer Content-Length can't be compared to the limit, so the
+    request is let through rather than raising -- it's still bounded by
+    whatever actually reads the body downstream."""
+    from openfusion.server import MaxBodySizeMiddleware
+
+    async def app(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b"ok"})
+
+    middleware = MaxBodySizeMiddleware(app, max_bytes=10)
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "headers": [(b"content-length", b"not-a-number")],
+        "query_string": b"",
+    }
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    sent = []
+
+    async def send(message):
+        sent.append(message)
+
+    await middleware(scope, receive, send)
+
+    assert sent[0]["status"] == 200
+
+
+@pytest.mark.asyncio
+async def test_server_allows_body_within_limit(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    test_config.limits = LimitsConfig(max_request_bytes=1_000_000)
+    app = create_app(test_config)
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {"model": "pass-model", "messages": [{"role": "user", "content": "hi"}]}
+        response = await http_client.post("/v1/chat/completions", json=payload)
+    await app.state.upstream_client.aclose()
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_server_body_size_unlimited_by_default(
+    test_config: OpenFusionConfig, mock_router
+) -> None:
+    assert test_config.limits.max_request_bytes == 0
+    app = create_app(test_config)
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {
+            "model": "pass-model",
+            "messages": [{"role": "user", "content": "x" * 100_000}],
+        }
+        response = await http_client.post("/v1/chat/completions", json=payload)
+    await app.state.upstream_client.aclose()
+
+    assert response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_server_releases_concurrency_slot_after_response(
     test_config: OpenFusionConfig, mock_router
 ) -> None:
