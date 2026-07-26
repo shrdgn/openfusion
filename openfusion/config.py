@@ -217,13 +217,16 @@ class PipelineConfig(BaseModel):
 class LimitsConfig(BaseModel):
     """Concurrency and per-key rate limits for serving public traffic.
 
-    Both default to 0 (unlimited), preserving the MVP behavior. ``max_in_flight``
+    All default to 0 (unlimited), preserving the MVP behavior. ``max_in_flight``
     caps concurrent fusion requests; ``rate_limit_per_minute`` is a fixed-window
-    cap per gateway key (or per client when no key is presented).
+    cap per gateway key (or per client when no key is presented);
+    ``max_request_bytes`` rejects oversized request bodies (checked against
+    ``Content-Length``) before they're read into memory.
     """
 
     max_in_flight: int = Field(default=0, ge=0)
     rate_limit_per_minute: int = Field(default=0, ge=0)
+    max_request_bytes: int = Field(default=0, ge=0)
 
 
 class CacheConfig(BaseModel):

@@ -22,6 +22,7 @@ from fastapi.responses import (
 )
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from openfusion.config import (
     _PRESETS,
@@ -199,6 +200,48 @@ def _error_response(exc: OpenFusionError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content=exc.to_dict())
 
 
+class MaxBodySizeMiddleware(BaseHTTPMiddleware):
+    """Reject requests whose declared body size exceeds ``max_bytes`` with 413.
+
+    Checked against the ``Content-Length`` header before the body is read into
+    memory, so an oversized payload (e.g. a large multimodal/file-attachment
+    request) can't exhaust memory ahead of ``limits.max_in_flight``/
+    ``rate_limit_per_minute``. Best-effort like the rest of ``limits.py``: a
+    client that lies about ``Content-Length`` or streams a body without one
+    (chunked transfer-encoding) isn't caught by this check.
+    """
+
+    def __init__(self, app: Any, *, max_bytes: int) -> None:
+        super().__init__(app)
+        self.max_bytes = max_bytes
+
+    async def dispatch(
+        self, request: Request, call_next: RequestResponseEndpoint
+    ) -> Any:
+        if self.max_bytes > 0:
+            content_length = request.headers.get("content-length")
+            if content_length is not None:
+                try:
+                    declared_size = int(content_length)
+                except ValueError:
+                    declared_size = 0
+                if declared_size > self.max_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content={
+                            "error": {
+                                "message": (
+                                    f"Request body too large ({declared_size} bytes, "
+                                    f"max {self.max_bytes})"
+                                ),
+                                "type": "invalid_request_error",
+                                "code": "request_too_large",
+                            }
+                        },
+                    )
+        return await call_next(request)
+
+
 def _record_request(route: str, outcome: str, started: float) -> None:
     METRICS.record_request(
         route=route,
@@ -241,6 +284,10 @@ def create_app(
         await upstream_client.aclose()
 
     app = FastAPI(title="openfusion", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        MaxBodySizeMiddleware,
+        max_bytes=(app_config.limits.max_request_bytes if app_config else 0),
+    )
     app.state.config = app_config
     app.state.config_resolver = config_resolver
     app.state.usage_callback = usage_callback

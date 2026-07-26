@@ -7,6 +7,11 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [Unreleased]
 
 ### Added
+- **Request body size limit** — `limits.max_request_bytes` (off/unlimited by default) rejects an
+  oversized request with a 413 before its body is read into memory, checked against
+  `Content-Length` (`server.py::MaxBodySizeMiddleware`). Closes a gap where nothing server-side
+  bounded request size — relevant now that the playground's file-attachment feature sends
+  multimodal payloads that can carry large base64 content.
 - **Routing learning loop** — the heuristic router (`router.mode: heuristic`) now tracks an
   in-process EMA of fuse-vs-solo success rate per prompt tier (`openfusion.outcomes.OutcomeStore`)
   and nudges future decisions toward whichever has been winning once either side has enough

@@ -104,6 +104,7 @@ server-side. `GET /v1/config` exposes the active panel/judge and onboarding flag
 | Token burn on cancel | Cancel panel/judge tasks on client disconnect | Integration test for cancellation |
 | Judge context overflow | Truncate longest panel answers first (`max_panel_tokens`) | Tokenizer-accurate counting |
 | Concurrency / DoS | `limits.py` enforces an optional `max_in_flight` cap (`OverloadedError`/503) and a per-key `rate_limit_per_minute` window (`RateLimitError`/429); both off (unlimited) by default. The rate-limit key is only trusted from an *authenticated* Bearer token (checked against `gateway.api_keys`) -- without an allowlist configured, all traffic shares one `anonymous` bucket so a client can't bypass the limit by rotating headers (`server.py::_rate_limit_key`) | Limits are in-process/best-effort, not a substitute for an edge proxy or a distributed limiter |
+| Memory exhaustion via oversized request | `limits.max_request_bytes` (off/unlimited by default) rejects a request whose `Content-Length` exceeds the cap with 413, before the body is read into memory (`server.py::MaxBodySizeMiddleware`) — relevant now that the playground sends multimodal/file-attachment payloads | Checked against `Content-Length` only; a client that omits it (chunked transfer-encoding) or lies about it isn't caught — pair with an edge proxy body-size limit for untrusted traffic |
 
 ## Testing layers
 
