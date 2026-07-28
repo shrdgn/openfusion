@@ -34,17 +34,23 @@ pip install -e ".[dev]"
 CI runs two jobs — run the relevant checks locally first:
 
 ```bash
-ruff check .          # lint + import order (ruff format-compatible)
-pytest -q             # 280+ tests, no network (upstreams are mocked with respx)
+ruff check .                                        # lint + import order (ruff format-compatible)
+mypy openfusion/ --ignore-missing-imports \
+  --disable-error-code import-untyped --exclude openfusion/cli.py  # type check
+pytest -q --cov=openfusion --cov-report=term-missing               # no network (mocked with respx)
 ```
+
+CI fails `pytest` under 80% coverage (`[tool.coverage.report]` in `pyproject.toml`) —
+new code needs a test, not just a passing suite.
 
 If you touched `web/`, also run the UI job's checks:
 
 ```bash
 cd web
 npm ci
-npm test              # Vitest
-npm run build         # rebuilds openfusion/static/playground/
+npm run test:coverage  # Vitest; CI fails under 90%/70%/85%/90% stmts/branches/funcs/lines
+npm run typecheck      # tsc --noEmit
+npm run build          # rebuilds openfusion/static/playground/
 ```
 
 CI fails if the built UI in `openfusion/static/playground` isn't committed and
@@ -56,7 +62,7 @@ the opt-in `scripts/openrouter_smoke.py`, which never runs in CI.
 
 ## Pull request checklist
 
-- [ ] `ruff check .` and `pytest -q` pass locally.
+- [ ] `ruff check .`, `mypy`, and `pytest -q` pass locally (see the exact commands above).
 - [ ] New behavior has a test (unit or `respx`-mocked integration).
 - [ ] Docs updated if you changed config, the request surface, or defaults
       (`README.md`, and `docs/ARCHITECTURE.md` for module boundaries).
