@@ -73,6 +73,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `anonymous` bucket instead of each request minting its own budget.
 
 ### Changed
+- Removed a stray, empty `openfusion/package-lock.json` — an npm lockfile
+  accidentally committed inside the Python package directory (unrelated to the
+  real UI lockfile at `web/package-lock.json`), left over from a manual commit
+  outside the normal PR/CI flow.
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
   building it, so a type error in `web/src/**` fails the build instead of
   silently passing through Vite's esbuild transform (which strips types
