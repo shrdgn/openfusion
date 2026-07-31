@@ -8,6 +8,20 @@ from openfusion.config import Aggregator, OpenFusionConfig
 from openfusion.panel import expand_panel_members
 
 
+def chars_to_tokens(chars: int) -> int:
+    """Rough token-count estimate from a character count (~4 chars/token).
+
+    Not a real tokenizer — used only for budget heuristics (pre-run cost
+    preview, panel-answer truncation), where an exact count isn't required.
+    """
+    return max(1, chars // 4)
+
+
+def estimate_tokens(text: str) -> int:
+    """Rough token-count estimate for a string of text. See chars_to_tokens."""
+    return chars_to_tokens(len(text))
+
+
 def _estimate_input_tokens(messages: Any) -> int:
     if not isinstance(messages, list):
         return 0
@@ -23,7 +37,7 @@ def _estimate_input_tokens(messages: Any) -> int:
             for block in content:
                 if isinstance(block, dict) and isinstance(block.get("text"), str):
                     chars += len(block["text"])
-    return max(1, chars // 4)  # rough; ~4 chars/token
+    return chars_to_tokens(chars)
 
 
 def build_estimate(body: dict[str, Any], config: OpenFusionConfig, prices: dict) -> dict[str, Any]:

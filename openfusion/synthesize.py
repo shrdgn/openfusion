@@ -9,6 +9,7 @@ from typing import Any
 from openfusion.config import JudgeConfig, OpenFusionConfig
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
+from openfusion.estimate import estimate_tokens
 from openfusion.panel import PanelResult
 from openfusion.tools import apply_web_tools, strip_tool_fields
 from openfusion.upstream import UpstreamClient, extract_response_usage
@@ -34,11 +35,6 @@ ANALYSIS_INSTRUCTION = (
 )
 
 
-def _estimate_tokens(text: str) -> int:
-    # Rough heuristic until tokenizer integration is added.
-    return max(1, len(text) // 4)
-
-
 def _truncate_panel_responses(
     responses: list[tuple[str, str]],
     max_tokens: int,
@@ -46,7 +42,7 @@ def _truncate_panel_responses(
     """Truncate longest answers first until the injected panel fits the budget."""
     remaining = list(responses)
     while remaining:
-        total = sum(_estimate_tokens(content) for _, content in remaining)
+        total = sum(estimate_tokens(content) for _, content in remaining)
         if total <= max_tokens:
             return remaining
         longest_index = max(range(len(remaining)), key=lambda idx: len(remaining[idx][1]))
