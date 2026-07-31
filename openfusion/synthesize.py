@@ -11,7 +11,12 @@ from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
 from openfusion.panel import PanelResult
 from openfusion.tools import apply_web_tools, strip_tool_fields
-from openfusion.upstream import UpstreamClient, extract_response_usage
+from openfusion.upstream import (
+    UpstreamClient,
+    extract_delta_content,
+    extract_finish_reason,
+    extract_response_usage,
+)
 
 JUDGE_SYSTEM_PROMPT = (
     "You are the synthesizer. Below are N independent answers to the same user request. "
@@ -83,23 +88,6 @@ def build_judge_messages(
     ]
 
 
-def _extract_delta_content(chunk: dict[str, Any]) -> str:
-    choices = chunk.get("choices") or []
-    if not choices:
-        return ""
-    delta = choices[0].get("delta") or {}
-    content = delta.get("content")
-    return content if isinstance(content, str) else ""
-
-
-def _extract_finish_reason(chunk: dict[str, Any]) -> str | None:
-    choices = chunk.get("choices") or []
-    if not choices:
-        return None
-    reason = choices[0].get("finish_reason")
-    return reason if isinstance(reason, str) else None
-
-
 async def synthesize(
     request_body: dict[str, Any],
     panel: PanelResult,
@@ -149,9 +137,9 @@ async def synthesize(
         raise UpstreamError("Expected streaming judge response")
 
     async for chunk in stream:
-        delta = _extract_delta_content(chunk)
+        delta = extract_delta_content(chunk)
         usage = extract_response_usage(chunk)
-        finish_reason = _extract_finish_reason(chunk)
+        finish_reason = extract_finish_reason(chunk)
         if delta:
             yield delta, usage, finish_reason
         elif usage or finish_reason:

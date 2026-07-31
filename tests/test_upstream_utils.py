@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from openfusion.upstream import extract_response_usage, member_from_dict
+from openfusion.upstream import (
+    extract_delta_content,
+    extract_finish_reason,
+    extract_response_usage,
+    member_from_dict,
+)
 
 # ---------------------------------------------------------------------------
 # extract_response_usage
@@ -90,3 +95,51 @@ def test_member_from_dict_basic() -> None:
 def test_member_from_dict_with_label() -> None:
     member = member_from_dict("https://api.example.com/v1", "sk-key", "gpt-key", label="my-panel")
     assert member.label == "my-panel"
+
+
+# ---------------------------------------------------------------------------
+# extract_delta_content
+# ---------------------------------------------------------------------------
+
+
+def test_extract_delta_content_returns_text() -> None:
+    chunk = {"choices": [{"delta": {"content": "hello"}}]}
+    assert extract_delta_content(chunk) == "hello"
+
+
+def test_extract_delta_content_empty_when_no_choices() -> None:
+    assert extract_delta_content({}) == ""
+    assert extract_delta_content({"choices": []}) == ""
+
+
+def test_extract_delta_content_empty_when_content_is_none() -> None:
+    assert extract_delta_content({"choices": [{"delta": {"content": None}}]}) == ""
+
+
+def test_extract_delta_content_empty_when_delta_absent() -> None:
+    assert extract_delta_content({"choices": [{}]}) == ""
+
+
+# ---------------------------------------------------------------------------
+# extract_finish_reason
+# ---------------------------------------------------------------------------
+
+
+def test_extract_finish_reason_stop() -> None:
+    chunk = {"choices": [{"finish_reason": "stop"}]}
+    assert extract_finish_reason(chunk) == "stop"
+
+
+def test_extract_finish_reason_none_when_no_choices() -> None:
+    assert extract_finish_reason({}) is None
+    assert extract_finish_reason({"choices": []}) is None
+
+
+def test_extract_finish_reason_none_when_null() -> None:
+    # OpenAI streams send null finish_reason on non-terminal chunks.
+    assert extract_finish_reason({"choices": [{"finish_reason": None}]}) is None
+
+
+def test_extract_finish_reason_length() -> None:
+    chunk = {"choices": [{"finish_reason": "length"}]}
+    assert extract_finish_reason(chunk) == "length"
