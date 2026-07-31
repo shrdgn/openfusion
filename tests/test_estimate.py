@@ -16,7 +16,7 @@ from openfusion.config import (
     PanelMember,
     Strategy,
 )
-from openfusion.estimate import build_estimate
+from openfusion.estimate import build_estimate, chars_to_tokens, estimate_tokens
 from openfusion.server import create_app
 
 
@@ -37,6 +37,21 @@ def _config() -> OpenFusionConfig:
         judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
         cost_controls=CostControlsConfig(panel_max_tokens=100, judge_max_tokens=200),
     )
+
+
+def test_chars_to_tokens_rounds_down() -> None:
+    assert chars_to_tokens(40) == 10
+    assert chars_to_tokens(39) == 9
+
+
+def test_chars_to_tokens_floor_is_one() -> None:
+    assert chars_to_tokens(0) == 1
+    assert chars_to_tokens(1) == 1
+
+
+def test_estimate_tokens_uses_text_length() -> None:
+    assert estimate_tokens("x" * 40) == 10
+    assert estimate_tokens("") == 1
 
 
 def test_estimate_input_tokens_string_content() -> None:
