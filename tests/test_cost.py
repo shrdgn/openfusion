@@ -138,6 +138,38 @@ def test_apply_does_not_mutate_original_body() -> None:
 
 
 # ---------------------------------------------------------------------------
+# apply_token_limit — already_isolated skips the internal deep copy
+# ---------------------------------------------------------------------------
+
+
+def test_apply_already_isolated_mutates_and_returns_same_object() -> None:
+    policy = _policy(panel_max_tokens=100)
+    body: dict = {"max_tokens": 500}
+    result = policy.apply_token_limit(
+        body, RequestPhase.PANEL, reject_over_limit=False, already_isolated=True
+    )
+    assert result is body  # no extra copy made
+    assert body["max_tokens"] == 100  # caller's own copy was capped in place
+
+
+def test_apply_already_isolated_no_limit_returns_same_object() -> None:
+    policy = _policy()
+    body: dict = {"max_tokens": 500}
+    result = policy.apply_token_limit(
+        body, RequestPhase.PASS_THROUGH, reject_over_limit=False, already_isolated=True
+    )
+    assert result is body
+
+
+def test_apply_already_isolated_still_raises_over_limit() -> None:
+    policy = _policy(panel_max_tokens=100)
+    with pytest.raises(InvalidRequestError, match="exceeds"):
+        policy.apply_token_limit(
+            {"max_tokens": 500}, RequestPhase.PANEL, reject_over_limit=True, already_isolated=True
+        )
+
+
+# ---------------------------------------------------------------------------
 # _limit_for — defensive branch for an unrecognized phase
 # ---------------------------------------------------------------------------
 

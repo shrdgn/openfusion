@@ -40,12 +40,20 @@ class CostPolicy:
         phase: RequestPhase,
         *,
         reject_over_limit: bool,
+        already_isolated: bool = False,
     ) -> dict[str, Any]:
-        limit = self._limit_for(phase)
-        if limit is None:
-            return copy.deepcopy(body)
+        """Cap max_tokens per the configured phase limit.
 
-        capped = copy.deepcopy(body)
+        By default, returns a deep copy so the caller's body is never mutated.
+        Pass ``already_isolated=True`` when the caller already owns an
+        exclusive copy of ``body`` (e.g. it just deep-copied it itself), to
+        avoid paying for a second deep copy of the same request.
+        """
+        limit = self._limit_for(phase)
+        capped = body if already_isolated else copy.deepcopy(body)
+        if limit is None:
+            return capped
+
         requested = capped.get("max_tokens")
         if requested is None:
             capped["max_tokens"] = limit

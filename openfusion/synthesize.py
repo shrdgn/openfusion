@@ -134,6 +134,7 @@ async def synthesize(
         judge_body,
         RequestPhase.JUDGE,
         reject_over_limit=True,
+        already_isolated=True,
     )
     if config.tools.apply_to_judge:
         judge_body = apply_web_tools(judge_body, config.tools)
