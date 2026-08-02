@@ -46,6 +46,13 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- Debate revision, judge synthesis, and ranked-choice prompts no longer paste a
+  Python `repr()` of a multimodal `content` block list (including raw base64
+  image data) into the "original user request" section when the client sends
+  an image attachment. `panel._build_revision_messages`, `synthesize.build_judge_messages`,
+  and `ranked._original_user_text` now extract just the text parts via a
+  shared `openfusion.messages.message_text` helper, matching how the router
+  already handled multimodal content (`router._user_text`).
 - The playground no longer silently drops a file attachment (or the batch behind
   it) when `FileReader` fails to read it — the failure is now caught per file and
   surfaced as a status message, and the picker's "file too large" and "could not

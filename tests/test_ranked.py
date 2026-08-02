@@ -269,6 +269,27 @@ def test_original_user_text_only_system_gives_empty() -> None:
     assert _original_user_text(messages) == ""
 
 
+def test_original_user_text_drops_multimodal_image_blocks() -> None:
+    # Regression test: previously str()'d the raw content-block list, pasting
+    # base64 image data into the ranking prompt sent to the judge model.
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "which is better"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAAVERYLONGBASE64BLOB"},
+                },
+            ],
+        }
+    ]
+    result = _original_user_text(messages)
+    assert "which is better" in result
+    assert "base64" not in result
+    assert "image_url" not in result
+
+
 # ---------------------------------------------------------------------------
 # build_ranking_messages
 # ---------------------------------------------------------------------------

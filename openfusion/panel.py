@@ -13,6 +13,7 @@ from openfusion.cache import mark_cache_breakpoint
 from openfusion.config import OpenFusionConfig, PanelMember, Strategy
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
+from openfusion.messages import message_text
 from openfusion.metrics import METRICS
 from openfusion.tools import apply_web_tools
 from openfusion.upstream import UpstreamClient, extract_response_usage
@@ -182,9 +183,8 @@ def _build_revision_messages(
 ) -> list[dict[str, Any]]:
     peer_text = "\n\n".join(f"### Expert {i + 1}\n{peer.content}" for i, peer in enumerate(peers))
     user_messages = [m for m in original_messages if m.get("role") != "system"]
-    original_user_text = "\n".join(
-        str(m.get("content", "")) for m in user_messages if m.get("content")
-    )
+    texts = [message_text(m.get("content")) for m in user_messages]
+    original_user_text = "\n".join(text for text in texts if text)
     prompt = (
         f"{DEBATE_INSTRUCTION}\n\n"
         f"Original request:\n{original_user_text}\n\n"
