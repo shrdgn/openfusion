@@ -46,6 +46,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `response_cache`'s `cache_key` no longer re-serializes and re-hashes a
+  multimodal request's raw base64 image data as part of the outer JSON blob
+  it hashes on every cache-enabled request. Each `image_url` content block is
+  now collapsed to a hash of its own payload before the outer key is built,
+  so the key computation's cost stops scaling with attachment size while
+  staying just as stable and collision-resistant.
 - The playground no longer silently drops a file attachment (or the batch behind
   it) when `FileReader` fails to read it — the failure is now caught per file and
   surfaced as a status message, and the picker's "file too large" and "could not

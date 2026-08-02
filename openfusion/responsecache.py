@@ -11,6 +11,41 @@ from typing import Any
 from openfusion.config import OpenFusionConfig
 
 
+def _compact_content(content: Any) -> Any:
+    """Collapse large multimodal blocks in a message's ``content`` to a hash.
+
+    A multimodal ``image_url`` block carries its image as a base64 ``data:``
+    URL, which can be multiple megabytes. Passing it through unchanged would
+    have ``cache_key`` re-serialize and re-hash that data on every
+    cache-enabled request (hit or miss) as part of the outer JSON blob.
+    Hashing each image block's own payload up front keeps the key just as
+    stable and collision-resistant while keeping the outer blob's size
+    independent of attachment size.
+    """
+    if not isinstance(content, list):
+        return content
+    compact = []
+    for block in content:
+        if isinstance(block, dict) and block.get("type") == "image_url":
+            url = block.get("image_url")
+            digest = hashlib.sha256(str(url).encode("utf-8")).hexdigest()
+            compact.append({"type": "image_url", "hash": digest})
+        else:
+            compact.append(block)
+    return compact
+
+
+def _compact_messages(messages: Any) -> Any:
+    if not isinstance(messages, list):
+        return messages
+    return [
+        {**message, "content": _compact_content(message.get("content"))}
+        if isinstance(message, dict)
+        else message
+        for message in messages
+    ]
+
+
 def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
     """A stable key over the request + the recipe that determines the answer.
 
@@ -25,7 +60,7 @@ def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
         [*(member.api_key for member in config.panel), config.judge.api_key if config.judge else ""]
     )
     payload = {
-        "messages": body.get("messages"),
+        "messages": _compact_messages(body.get("messages")),
         "strategy": config.strategy.value,
         "aggregator": config.aggregator.value,
         "panel": [member.model for member in config.panel],
