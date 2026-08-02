@@ -116,7 +116,8 @@ def _chat(
     response.raise_for_status()
     payload = response.json()
     answer = payload["choices"][0]["message"]["content"]
-    usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+    raw_usage = payload.get("usage")
+    usage: dict[str, Any] = raw_usage if isinstance(raw_usage, dict) else {}
     return str(answer), time.perf_counter() - started, usage
 
 
