@@ -46,6 +46,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- CI's `mypy` step now also checks `bench/` and `scripts/`, not just `openfusion/`.
+  This caught a real type mismatch in `bench/run.py::_chat` (a benchmark-only
+  helper) where the returned `usage` dict wasn't narrowed correctly and could
+  type as `Any | dict[Any, Any] | None`.
 - The playground no longer silently drops a file attachment (or the batch behind
   it) when `FileReader` fails to read it — the failure is now caught per file and
   surfaced as a status message, and the picker's "file too large" and "could not
