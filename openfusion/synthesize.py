@@ -9,6 +9,7 @@ from typing import Any
 from openfusion.config import JudgeConfig, OpenFusionConfig
 from openfusion.cost import CostPolicy, RequestPhase
 from openfusion.errors import UpstreamError
+from openfusion.messages import message_text
 from openfusion.panel import PanelResult
 from openfusion.tools import apply_web_tools, strip_tool_fields
 from openfusion.upstream import UpstreamClient, extract_response_usage
@@ -68,9 +69,8 @@ def build_judge_messages(
     panel_text = "\n\n".join(f"### {label}\n{content}" for label, content in capped)
 
     user_messages = [message for message in original_messages if message.get("role") != "system"]
-    original_user_text = "\n".join(
-        str(message.get("content", "")) for message in user_messages if message.get("content")
-    )
+    texts = [message_text(message.get("content")) for message in user_messages]
+    original_user_text = "\n".join(text for text in texts if text)
 
     judge_user_prompt = (
         f"Original user request:\n{original_user_text}\n\n"

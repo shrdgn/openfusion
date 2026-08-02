@@ -15,6 +15,7 @@ from typing import Any
 
 from openfusion.config import PanelMember, RouteModel, RouterConfig, RouterMode, Tier
 from openfusion.cost import RequestPhase
+from openfusion.messages import message_text
 from openfusion.outcomes import OutcomeStore
 from openfusion.upstream import UpstreamClient
 
@@ -48,14 +49,9 @@ def _user_text(body: dict[str, Any]) -> str:
     parts: list[str] = []
     for message in messages:
         if isinstance(message, dict) and message.get("role") == "user":
-            content = message.get("content")
-            if isinstance(content, str):
-                parts.append(content)
-            elif isinstance(content, list):
-                # OpenAI multimodal content blocks: collect text parts only.
-                for block in content:
-                    if isinstance(block, dict) and isinstance(block.get("text"), str):
-                        parts.append(block["text"])
+            text = message_text(message.get("content"))
+            if text:
+                parts.append(text)
     return "\n".join(parts)
 
 

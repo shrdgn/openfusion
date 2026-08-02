@@ -44,6 +44,39 @@ def test_build_judge_messages_includes_panel_blocks() -> None:
     assert "You are the synthesizer" not in messages[1]["content"]
 
 
+def test_build_judge_messages_drops_multimodal_image_blocks() -> None:
+    # Regression test: the judge prompt must carry the user's *text*, not a
+    # Python repr of the multimodal content-block list (which would paste raw
+    # base64 image data into the prompt sent to the judge model).
+    panel = PanelResult(responses=[MemberResponse(label="a", content="answer", model="m")])
+    judge = JudgeConfig(
+        base_url="https://example.com/v1",
+        api_key="k",
+        model="j",
+        max_panel_tokens=100000,
+    )
+    messages = build_judge_messages(
+        [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "describe this image"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAAVERYLONGBASE64BLOB"},
+                    },
+                ],
+            }
+        ],
+        panel,
+        judge,
+    )
+
+    assert "describe this image" in messages[1]["content"]
+    assert "base64" not in messages[1]["content"]
+    assert "image_url" not in messages[1]["content"]
+
+
 def test_truncate_panel_responses() -> None:
     from openfusion.synthesize import _truncate_panel_responses
 

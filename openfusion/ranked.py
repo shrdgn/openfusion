@@ -15,6 +15,7 @@ from typing import Any
 from openfusion.config import OpenFusionConfig
 from openfusion.cost import RequestPhase
 from openfusion.errors import UpstreamError
+from openfusion.messages import message_text
 from openfusion.panel import PanelResult
 from openfusion.tools import strip_tool_fields
 from openfusion.upstream import UpstreamClient
@@ -28,7 +29,8 @@ _RANK_PROMPT = (
 
 def _original_user_text(messages: list[dict[str, Any]]) -> str:
     user_messages = [m for m in messages if m.get("role") != "system"]
-    return "\n".join(str(m.get("content", "")) for m in user_messages if m.get("content"))
+    texts = [message_text(m.get("content")) for m in user_messages]
+    return "\n".join(text for text in texts if text)
 
 
 def build_ranking_messages(

@@ -14,7 +14,7 @@ from openfusion.config import (
     Strategy,
     TimeoutsConfig,
 )
-from openfusion.panel import gather_panel
+from openfusion.panel import MemberResponse, _build_revision_messages, gather_panel
 from openfusion.upstream import UpstreamClient
 
 
@@ -92,6 +92,32 @@ async def test_debate_preserves_round1_usage_when_revision_has_none(mock_router)
     assert all(r.usage is not None for r in result.responses)
     assert all(r.usage.get("prompt_tokens", 0) >= 1 for r in result.responses)
     await client.aclose()
+
+
+def test_build_revision_messages_drops_multimodal_image_blocks() -> None:
+    # Regression test: previously str()'d the raw content-block list, pasting
+    # base64 image data into the revision prompt sent back to panel members.
+    original_messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "what's in this photo"},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,AAAAVERYLONGBASE64BLOB"},
+                },
+            ],
+        }
+    ]
+    own = MemberResponse(label="a", content="a cat", model="m1")
+    peers = [MemberResponse(label="b", content="a dog", model="m2")]
+
+    messages = _build_revision_messages(original_messages, own, peers)
+
+    prompt = messages[0]["content"]
+    assert "what's in this photo" in prompt
+    assert "base64" not in prompt
+    assert "image_url" not in prompt
 
 
 @pytest.mark.asyncio
