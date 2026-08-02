@@ -55,6 +55,46 @@ def test_cache_key_depends_on_prompt_and_recipe() -> None:
     assert cache_key(body1, cfg) != cache_key(body2, cfg)
 
 
+def test_cache_key_stable_and_distinct_for_multimodal_image_blocks() -> None:
+    cfg = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="k", model="j"),
+    )
+
+    def _body(url: str) -> dict:
+        return {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "describe this"},
+                        {"type": "image_url", "image_url": {"url": url}},
+                    ],
+                }
+            ]
+        }
+
+    image_a = _body("data:image/png;base64,AAAA")
+    image_a_again = _body("data:image/png;base64,AAAA")
+    image_b = _body("data:image/png;base64,BBBB")
+
+    assert cache_key(image_a, cfg) == cache_key(image_a_again, cfg)
+    assert cache_key(image_a, cfg) != cache_key(image_b, cfg)
+    # The key doesn't just ignore image content -- a text-only request with the
+    # same text is a different, distinguishable key.
+    text_only = {"messages": [{"role": "user", "content": "describe this"}]}
+    assert cache_key(image_a, cfg) != cache_key(text_only, cfg)
+
+
+def test_cache_key_handles_missing_or_non_list_messages() -> None:
+    cfg = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="k", model="j"),
+    )
+    assert cache_key({}, cfg) == cache_key({"messages": None}, cfg)
+    assert cache_key({"messages": "not-a-list"}, cfg) != cache_key({}, cfg)
+
+
 def test_cache_key_differs_on_sampling_params() -> None:
     cfg = OpenFusionConfig(
         panel=[PanelMember(base_url="u", api_key="k", model="m")],
