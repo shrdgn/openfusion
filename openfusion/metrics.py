@@ -12,10 +12,23 @@ from collections import defaultdict
 from typing import Any
 
 
+def _escape_label_value(value: str) -> str:
+    """Escape a label value per the Prometheus text exposition format.
+
+    Backslashes and double quotes must be escaped, and newlines replaced,
+    or an unescaped value containing them (e.g. an operator-configured
+    panel member ``label``) would emit malformed exposition text and break
+    scraping for the whole ``/metrics`` response, not just that series.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
 def _labels(pairs: dict[str, str]) -> str:
     if not pairs:
         return ""
-    body = ",".join(f'{key}="{value}"' for key, value in sorted(pairs.items()))
+    body = ",".join(
+        f'{key}="{_escape_label_value(value)}"' for key, value in sorted(pairs.items())
+    )
     return "{" + body + "}"
 
 
