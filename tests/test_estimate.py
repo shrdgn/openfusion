@@ -306,6 +306,7 @@ async def test_pricing_stale_cache_triggers_refetch(mock_router) -> None:
     pricing._cache["https://mock.upstream/v1"] = (
         time.monotonic() - pricing._TTL_SECONDS - 1,
         {},
+        pricing._TTL_SECONDS,
     )
 
     result = await pricing.get_prices("https://mock.upstream/v1")
@@ -323,6 +324,7 @@ async def test_pricing_stale_cache_returned_on_error(mock_router) -> None:
     pricing._cache["https://mock.upstream/v1"] = (
         time.monotonic() - pricing._TTL_SECONDS - 1,
         stale,
+        pricing._TTL_SECONDS,
     )
 
     result = await pricing.get_prices("https://mock.upstream/v1")

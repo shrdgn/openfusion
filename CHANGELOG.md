@@ -78,6 +78,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without a `gateway.api_keys` allowlist. The rate-limit identity is now only
   taken from a *validated* gateway token; unauthenticated traffic shares one
   `anonymous` bucket instead of each request minting its own budget.
+- `pricing.get_prices` no longer caches a failed/empty upstream `/models` fetch
+  for the full one-hour success TTL. A transient outage now expires after a
+  short 60s failure TTL instead of silently returning `cost_usd: None` from
+  `/v1/estimate` for up to an hour after the upstream has recovered.
 
 ### Changed
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before

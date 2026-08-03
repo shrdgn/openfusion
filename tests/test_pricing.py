@@ -79,6 +79,7 @@ async def test_inflight_fetch_returns_stale_cache_without_new_call(mock_router) 
     pricing._cache["https://mock.upstream/v1"] = (
         time.monotonic() - pricing._TTL_SECONDS - 1,
         stale,
+        pricing._TTL_SECONDS,
     )
     pricing._inflight.add("https://mock.upstream/v1")
     try:
@@ -109,3 +110,44 @@ async def test_inflight_fetch_returns_empty_when_no_cache(mock_router) -> None:
 
     assert result == {}
     assert call_count == 0
+
+
+async def test_failed_fetch_uses_short_ttl_not_full_ttl(mock_router) -> None:
+    """A failed fetch must be re-tried well before the full success TTL elapses.
+
+    Regression test: get_prices() used to cache a failed/empty result with the same
+    now-timestamp as a success, so it was treated as fresh for the full _TTL_SECONDS
+    window. That meant a transient upstream outage locked in a stale/empty price
+    table for up to an hour even after the upstream recovered.
+    """
+    call_count = 0
+
+    def _handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return httpx.Response(503)
+        return httpx.Response(
+            200,
+            json={"data": [{"id": "m", "pricing": {"prompt": "0.001", "completion": "0.002"}}]},
+        )
+
+    mock_router.get("https://mock.upstream/v1/models").mock(side_effect=_handler)
+
+    first = await pricing.get_prices("https://mock.upstream/v1")
+    assert first == {}
+    assert call_count == 1
+
+    # Just past the short failure TTL, but nowhere near the full success TTL:
+    # the entry must already be stale and trigger a re-fetch.
+    cached_at, prices, ttl = pricing._cache["https://mock.upstream/v1"]
+    assert ttl == pricing._FAILURE_TTL_SECONDS
+    pricing._cache["https://mock.upstream/v1"] = (
+        cached_at - pricing._FAILURE_TTL_SECONDS - 1,
+        prices,
+        ttl,
+    )
+
+    second = await pricing.get_prices("https://mock.upstream/v1")
+    assert call_count == 2  # re-fetched instead of trusting the poisoned entry
+    assert "m" in second
