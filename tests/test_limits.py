@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
@@ -32,11 +34,33 @@ def test_rate_window_prunes_stale_entries() -> None:
     for i in range(50):
         limiter.check_rate(f"key-{i}")
     assert len(limiter._window) == 50
-    # Backdate all entries so they appear expired.
-    limiter._window = {k: (v[0], v[1] - 61.0) for k, v in limiter._window.items()}
+    # Backdate all entries past the sliding window's two-window carry-over
+    # horizon so they appear fully expired.
+    limiter._window = {
+        k: (v[0], v[1], v[2] - 130.0) for k, v in limiter._window.items()
+    }
     # Re-checking an expired key triggers pruning of all other expired entries.
     limiter.check_rate("key-0")
     assert len(limiter._window) == 1
+
+
+def test_rate_limit_sliding_window_blends_previous_window() -> None:
+    """A naive fixed window resets to 0 at the boundary, letting a client
+    burst another full rpm worth of requests immediately after using its
+    budget just before the boundary (~2x rpm in a couple of seconds). The
+    sliding-window blend must instead carry the previous window's usage
+    forward so a 60s span stays close to rpm, not 2x rpm."""
+    limiter = RequestLimiter(LimitsConfig(rate_limit_per_minute=4))
+    key = "burst"
+    now = time.monotonic()
+    # The previous window used its full budget; we're now just past the
+    # window boundary.
+    limiter._window[key] = (0, 4, now - 60.01)
+    limiter.check_rate(key)  # still allowed: previous window is barely decayed
+    with pytest.raises(RateLimitError):
+        # A naive fixed window would allow 3 more requests here; the blended
+        # estimate is already back at the budget.
+        limiter.check_rate(key)
 
 
 def test_rate_window_bounded_when_keys_never_repeat() -> None:
