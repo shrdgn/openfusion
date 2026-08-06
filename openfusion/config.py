@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from enum import StrEnum
@@ -10,6 +11,8 @@ from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+_log = logging.getLogger(__name__)
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
@@ -462,6 +465,30 @@ def quickstart_config() -> OpenFusionConfig:
     )
 
 
+def _warn_if_world_readable(config_path: Path) -> None:
+    """Log a warning if ``config_path`` is readable by group/other.
+
+    The config file can hold plaintext upstream API keys when a deployer
+    doesn't use ``${ENV_VAR}`` placeholders, so an overly permissive mode is
+    worth flagging the same way ``credentials.py`` enforces 0o600 for the
+    CLI's saved-key file. Best-effort: skipped where POSIX modes don't apply.
+    """
+    if os.name != "posix":
+        return
+    try:
+        mode = config_path.stat().st_mode
+    except OSError:
+        return
+    if mode & 0o077:
+        _log.warning(
+            "%s is readable by group/other (mode %o) and may contain plaintext "
+            "API keys -- consider `chmod 600 %s`.",
+            config_path,
+            mode & 0o777,
+            config_path,
+        )
+
+
 def load_config(path: str | Path | None = None) -> OpenFusionConfig:
     """Load configuration from YAML and environment variables.
 
@@ -479,6 +506,7 @@ def load_config(path: str | Path | None = None) -> OpenFusionConfig:
             "then set OPENROUTER_API_KEY."
         )
 
+    _warn_if_world_readable(config_path)
     with config_path.open(encoding="utf-8") as handle:
         raw: dict[str, Any] = yaml.safe_load(handle) or {}
 

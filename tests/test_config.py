@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,38 @@ def test_load_example_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert config.cost_controls.pass_through_max_tokens == 1024
     assert config.cost_controls.panel_max_tokens == 512
     assert config.cost_controls.judge_max_tokens == 1024
+
+
+@pytest.mark.skipif(os.name != "posix", reason="file mode bits are POSIX-only")
+def test_load_config_warns_when_world_readable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-key")
+    config_path = tmp_path / "openfusion.yaml"
+    example = Path("examples/default.yaml.example").read_text(encoding="utf-8")
+    config_path.write_text(example, encoding="utf-8")
+    config_path.chmod(0o644)
+
+    with caplog.at_level(logging.WARNING, logger="openfusion.config"):
+        load_config(config_path)
+
+    assert any("chmod 600" in record.message for record in caplog.records)
+
+
+@pytest.mark.skipif(os.name != "posix", reason="file mode bits are POSIX-only")
+def test_load_config_no_warning_when_owner_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-key")
+    config_path = tmp_path / "openfusion.yaml"
+    example = Path("examples/default.yaml.example").read_text(encoding="utf-8")
+    config_path.write_text(example, encoding="utf-8")
+    config_path.chmod(0o600)
+
+    with caplog.at_level(logging.WARNING, logger="openfusion.config"):
+        load_config(config_path)
+
+    assert not caplog.records
 
 
 def test_load_dev_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
