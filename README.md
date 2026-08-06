@@ -306,6 +306,12 @@ differences are scale and a per-prompt router.
 | `OPENFUSION_CONFIG` | Path to config file (default: `openfusion.yaml`) |
 | `OPENFUSION_API_KEYS` | Comma-separated gateway allowlist (optional) |
 | `OPENFUSION_HOST` / `OPENFUSION_PORT` | Server bind address |
+| `OPENFUSION_LOG_LEVEL` | Uvicorn log level (default: `info`) |
+| `OPENFUSION_NO_OPEN` | Skip auto-opening the browser on `openfusion` startup |
+
+`openfusion.yaml` can hold plaintext upstream API keys if you don't use `${ENV_VAR}`
+placeholders, so restrict its permissions: `chmod 600 openfusion.yaml`. The server logs a
+warning at startup if the file is readable by group or other.
 
 ## Cost safety and live smoke tests
 
