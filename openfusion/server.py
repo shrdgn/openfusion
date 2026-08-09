@@ -169,9 +169,33 @@ def _set_runtime_api_key(store: OrderedDict[str, str], client_key: str, api_key:
         store.popitem(last=False)
 
 
+async def _release_after(
+    body_iterator: AsyncIterator[Any], limiter: RequestLimiter, acquired: bool
+) -> AsyncIterator[Any]:
+    """Release the concurrency slot once the stream body itself is done.
+
+    Streaming responses can't rely on ``response.background`` for this: when a
+    client disconnects mid-stream, Starlette's final empty-chunk write can raise
+    before the background task ever runs, silently skipping the release. With
+    ``limits.max_in_flight`` set, that leaks one slot per disconnected stream
+    until the server permanently 503s everything. Releasing from the body
+    iterator's own ``finally`` instead runs regardless of whether the
+    downstream write succeeds.
+    """
+    try:
+        async for chunk in body_iterator:
+            yield chunk
+    finally:
+        limiter.release(acquired)
+
+
 def _attach_release(response: Any, limiter: RequestLimiter, acquired: bool) -> Any:
     """Release the concurrency slot after the response (incl. stream) finishes."""
-    if acquired and getattr(response, "background", None) is None:
+    if not acquired:
+        return response
+    if isinstance(response, StreamingResponse):
+        response.body_iterator = _release_after(response.body_iterator, limiter, acquired)
+    elif getattr(response, "background", None) is None:
         response.background = BackgroundTask(limiter.release, acquired)
     return response
 
