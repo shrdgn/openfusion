@@ -613,7 +613,7 @@ async def ranked_and_stream(
     )
     for line in _answer_and_stop_lines(chunk_id, created, model, content):
         yield line
-    usage_payload = _build_usage_payload(panel, None)
+    usage_payload = _build_usage_payload(panel, meta.get("usage"))
     if usage_payload:
         yield _sse_line("usage", json.dumps(usage_payload))
     yield _sse_line(None, "[DONE]")
@@ -626,10 +626,12 @@ async def buffer_ranked(
 ) -> dict[str, Any]:
     """Non-streaming ranked-choice selection."""
     panel = await gather_panel(request_body, config, client)
-    content, _ = await pick_best(
+    content, meta = await pick_best(
         request_body, panel, config, client, timeout=config.timeouts.judge_seconds
     )
-    return _make_completion_response(content, config.fusion_model_name, usage=panel.usage_total)
+    usage_payload = _build_usage_payload(panel, meta.get("usage"))
+    total_usage = (usage_payload or {}).get("total") if usage_payload else None
+    return _make_completion_response(content, config.fusion_model_name, usage=total_usage)
 
 
 async def pipeline_and_stream(

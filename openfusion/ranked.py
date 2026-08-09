@@ -18,7 +18,7 @@ from openfusion.errors import UpstreamError
 from openfusion.messages import message_text
 from openfusion.panel import PanelResult
 from openfusion.tools import strip_tool_fields
-from openfusion.upstream import UpstreamClient
+from openfusion.upstream import UpstreamClient, extract_response_usage
 
 _RANK_PROMPT = (
     "You are judging candidate answers to the same request. Reply with ONLY the "
@@ -67,13 +67,19 @@ async def pick_best(
     *,
     timeout: float | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    """Return (best_answer_text, metadata) using one judge ranking call."""
+    """Return (best_answer_text, metadata) using one judge ranking call.
+
+    ``metadata["usage"]`` carries the ranking call's own token/cost usage (or
+    ``None`` when there was no judge call, e.g. a single-member panel) so
+    callers can fold it into the request's reported usage instead of silently
+    dropping the cost of every ranking call.
+    """
     judge = config.judge
     if judge is None:
         raise UpstreamError("Ranked-choice aggregation requires a judge")
     responses = panel.responses
     if len(responses) == 1:
-        return responses[0].content, {"winner": 0, "members": 1}
+        return responses[0].content, {"winner": 0, "members": 1, "usage": None}
 
     messages = request_body.get("messages")
     if not isinstance(messages, list):
@@ -97,4 +103,5 @@ async def pick_best(
     if choices:
         text = (choices[0].get("message") or {}).get("content") or ""
     index = _parse_choice(text, len(responses))
-    return responses[index].content, {"winner": index, "members": len(responses)}
+    usage = extract_response_usage(payload)
+    return responses[index].content, {"winner": index, "members": len(responses), "usage": usage}
