@@ -62,6 +62,43 @@ async def test_pick_best_returns_selected_answer(mock_router) -> None:
 
 
 @pytest.mark.asyncio
+async def test_pick_best_returns_ranking_call_usage(mock_router) -> None:
+    """The ranking judge call's own usage must be surfaced, not dropped.
+
+    Regression test: pick_best used to discard the judge response's usage
+    entirely, so every ranked-choice request silently under-reported cost by
+    the (often large, since it includes the full panel text) ranking call.
+    """
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"role": "assistant", "content": "2"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 1, "total_tokens": 101},
+            },
+        )
+    )
+    panel = PanelResult(
+        responses=[
+            MemberResponse(label="a", content="answer one", model="m"),
+            MemberResponse(label="b", content="answer two", model="m"),
+        ]
+    )
+    client = UpstreamClient()
+
+    _content, meta = await pick_best(
+        {"messages": [{"role": "user", "content": "q"}]}, panel, _config(), client
+    )
+
+    assert meta["usage"] == {
+        "prompt_tokens": 100,
+        "completion_tokens": 1,
+        "total_tokens": 101,
+    }
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_pick_best_single_response_skips_judge(mock_router) -> None:
     route = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
         return_value=httpx.Response(200, json={"choices": []})
@@ -141,13 +178,20 @@ async def test_ranked_aggregator_end_to_end(mock_router) -> None:
         text = json.dumps(payload["messages"])
         if "Candidate answers:" in text:  # the ranking call
             return httpx.Response(
-                200, json={"choices": [{"message": {"role": "assistant", "content": "2"}}]}
+                200,
+                json={
+                    "choices": [{"message": {"role": "assistant", "content": "2"}}],
+                    "usage": {"prompt_tokens": 20, "completion_tokens": 1, "total_tokens": 21},
+                },
             )
         # a panel member call; content encodes which member via model name
         answer = f"ans-{payload['model']}"
         return httpx.Response(
             200,
-            json={"choices": [{"message": {"role": "assistant", "content": answer}}]},
+            json={
+                "choices": [{"message": {"role": "assistant", "content": answer}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            },
         )
 
     mock_router.post("https://mock.upstream/v1/chat/completions").mock(side_effect=handler)
@@ -174,6 +218,13 @@ async def test_ranked_aggregator_end_to_end(mock_router) -> None:
     assert response.status_code == 200
     # The judge picked candidate 2 → the second panel member's answer.
     assert response.json()["choices"][0]["message"]["content"] == "ans-m2"
+    # Regression: buffer_ranked used to report only panel.usage_total, silently
+    # dropping the ranking judge call's own usage (20/1/21 above) from the total.
+    assert response.json()["usage"] == {
+        "prompt_tokens": 40,
+        "completion_tokens": 11,
+        "total_tokens": 51,
+    }
 
 
 @pytest.mark.asyncio

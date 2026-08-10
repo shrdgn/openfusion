@@ -323,6 +323,21 @@ async def test_ranked_and_stream_success_emits_winner_and_usage(mock_router) -> 
     finish_reasons = [c["choices"][0].get("finish_reason") for c in content_chunks]
     assert "stop" in finish_reasons
 
+    # Regression: the ranking judge call's usage (20/1/21 above) must be folded into
+    # the reported total alongside the panel's, not silently dropped.
+    usage_events = [json.loads(data) for event, data in events if event == "usage"]
+    assert usage_events, "expected a 'usage' SSE event"
+    assert usage_events[0]["judge"] == {
+        "prompt_tokens": 20,
+        "completion_tokens": 1,
+        "total_tokens": 21,
+    }
+    assert usage_events[0]["total"] == {
+        "prompt_tokens": 40,
+        "completion_tokens": 11,
+        "total_tokens": 51,
+    }
+
 
 @pytest.mark.asyncio
 async def test_capture_stream_skips_on_complete_on_error_chunk() -> None:

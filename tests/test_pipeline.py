@@ -406,6 +406,196 @@ async def test_run_pipeline_multi_step_solo_chain() -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_pipeline_multi_step_accumulates_usage_across_steps() -> None:
+    """Every step's usage must reach the caller, not just the final step's.
+
+    Regression test: intermediate steps used to discard their usage entirely
+    (bound to a `_usage`/`_reason` throwaway variable), so a pipeline's reported
+    cost silently covered only its last step.
+    """
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="draft", use=PipelineStepUse.SOLO),
+            PipelineStepConfig(
+                name="final", use=PipelineStepUse.SOLO, system="Polish: {draft}"
+            ),
+        ]
+    )
+
+    draft_sse = (
+        'data: {"choices":[{"delta":{"content":"draft text"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15,"cost":0.01}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    final_sse = (
+        'data: {"choices":[{"delta":{"content":"polished"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":20,"completion_tokens":8,"total_tokens":28,"cost":0.02}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [_sse_response(draft_sse), _sse_response(final_sse)]
+        client = UpstreamClient()
+        last_usage = None
+        async for _delta, usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if usage:
+                last_usage = usage
+        await client.aclose()
+
+    assert last_usage == {
+        "prompt_tokens": 30,
+        "completion_tokens": 13,
+        "total_tokens": 43,
+        "cost": 0.03,
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_final_fuse_step_folds_in_panel_and_prior_usage() -> None:
+    """A FUSE step's own panel usage -- and any accumulated from earlier steps --
+    must reach the caller alongside the judge's, even when FUSE is the final step.
+    synthesize() only ever yields the judge's usage, so run_pipeline has to fold in
+    the panel usage itself.
+    """
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="draft", use=PipelineStepUse.SOLO),
+            PipelineStepConfig(name="final", use=PipelineStepUse.FUSE),
+        ]
+    )
+
+    draft_sse = (
+        'data: {"choices":[{"delta":{"content":"draft text"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    panel_json = {
+        "choices": [{"message": {"content": "panel says x"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+    }
+    judge_sse = (
+        'data: {"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":20, "completion_tokens":1,"total_tokens":21}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [
+            _sse_response(draft_sse),  # SOLO draft step
+            httpx.Response(200, json=panel_json),  # FUSE step's panel member
+            _sse_response(judge_sse),  # FUSE step's judge synthesis
+        ]
+        client = UpstreamClient()
+        last_usage = None
+        async for _delta, usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if usage:
+                last_usage = usage
+        await client.aclose()
+
+    # draft (5/2/7) + panel (10/3/13) + judge (20/1/21) = 35/6/41
+    assert last_usage == {
+        "prompt_tokens": 35,
+        "completion_tokens": 6,
+        "total_tokens": 41,
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_intermediate_fuse_step_usage_is_accumulated() -> None:
+    """An intermediate FUSE step's panel usage AND its own judge synthesis usage must
+    both be folded into the final total, not just the final step's usage."""
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="research", use=PipelineStepUse.FUSE),
+            PipelineStepConfig(
+                name="final", use=PipelineStepUse.SOLO, system="Use {research} to answer."
+            ),
+        ]
+    )
+
+    panel_json = {
+        "choices": [{"message": {"content": "panel says x"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13},
+    }
+    research_sse = (
+        'data: {"choices":[{"delta":{"content":"research done"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":20,"completion_tokens":1,"total_tokens":21}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    final_sse = (
+        'data: {"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [
+            httpx.Response(200, json=panel_json),  # research step's panel member
+            _sse_response(research_sse),  # research step's judge synthesis
+            _sse_response(final_sse),  # final SOLO step
+        ]
+        client = UpstreamClient()
+        last_usage = None
+        async for _delta, usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if usage:
+                last_usage = usage
+        await client.aclose()
+
+    # panel (10/3/13) + judge (20/1/21) + final solo (5/2/7) = 35/6/41
+    assert last_usage == {
+        "prompt_tokens": 35,
+        "completion_tokens": 6,
+        "total_tokens": 41,
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_pipeline_emits_accumulated_usage_when_final_step_has_none() -> None:
+    """If the final step's own stream never carries a usage field, prior steps'
+    accumulated usage must still reach the caller via a trailing marker instead of
+    being silently dropped."""
+    cfg = _base_config(
+        [
+            PipelineStepConfig(name="draft", use=PipelineStepUse.SOLO),
+            PipelineStepConfig(name="final", use=PipelineStepUse.SOLO),
+        ]
+    )
+
+    draft_sse = (
+        'data: {"choices":[{"delta":{"content":"draft text"},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    final_sse_no_usage = (
+        'data: {"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}\n\n'
+        "data: [DONE]\n\n"
+    )
+
+    with respx.mock(assert_all_called=True) as mock:
+        route = mock.post("https://mock/v1/chat/completions")
+        route.side_effect = [_sse_response(draft_sse), _sse_response(final_sse_no_usage)]
+        client = UpstreamClient()
+        last_usage = None
+        async for _delta, usage, _reason in run_pipeline(
+            {"messages": [{"role": "user", "content": "hi"}]}, cfg, client
+        ):
+            if usage:
+                last_usage = usage
+        await client.aclose()
+
+    assert last_usage == {"prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7}
+
+
+@pytest.mark.asyncio
 async def test_run_pipeline_solo_final_step_non_stream_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
