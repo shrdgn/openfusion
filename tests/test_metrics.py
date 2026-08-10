@@ -32,6 +32,24 @@ def test_labels_empty_pairs_renders_no_braces() -> None:
     assert _labels({}) == ""
 
 
+def test_labels_escapes_quotes_backslashes_and_newlines() -> None:
+    # A label value containing exposition-format metacharacters (e.g. an
+    # operator-configured panel member `label`) must not break the format.
+    rendered = _labels({"label": 'gpt-4o "fast"\\v2\nbeta'})
+    assert rendered == '{label="gpt-4o \\"fast\\"\\\\v2\\nbeta"}'
+
+
+def test_render_prometheus_stays_well_formed_with_special_label_values() -> None:
+    m = Metrics()
+    m.record_panel_member_latency(label='weird "label"', phase="panel", latency_ms=10)
+    output = m.render_prometheus()
+    # The escaped quote inside the label value must not prematurely close the
+    # label-value string, and the line must have exactly one trailing metric value.
+    prefix = "openfusion_panel_member_latency_ms_count"
+    line = next(line_ for line_ in output.splitlines() if line_.startswith(prefix))
+    assert line == prefix + '{label="weird \\"label\\"",phase="panel"} 1'
+
+
 def test_fmt_non_integer_float_uses_repr() -> None:
     assert _fmt(0.5) == "0.5"
 

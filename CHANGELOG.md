@@ -78,6 +78,10 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without a `gateway.api_keys` allowlist. The rate-limit identity is now only
   taken from a *validated* gateway token; unauthenticated traffic shares one
   `anonymous` bucket instead of each request minting its own budget.
+- `GET /metrics` now escapes double quotes, backslashes, and newlines in label
+  values per the Prometheus text exposition format. A `panel` member `label`
+  containing a `"` (e.g. `label: 'gpt-4o "fast"'`) previously emitted malformed
+  exposition text, breaking scraping for the entire `/metrics` response.
 
 ### Changed
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
