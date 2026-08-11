@@ -78,6 +78,19 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without a `gateway.api_keys` allowlist. The rate-limit identity is now only
   taken from a *validated* gateway token; unauthenticated traffic shares one
   `anonymous` bucket instead of each request minting its own budget.
+- `limits.rate_limit_per_minute` now uses a sliding window instead of a fixed
+  one. The fixed window reset a key's count to 0 the instant it expired, so a
+  client could send its full budget at the end of one window and again at the
+  start of the next, getting ~2x its configured rate in about a second.
+- `load_config` now logs a warning at startup when `openfusion.yaml` is
+  group/other readable (`config.py::_warn_if_world_readable`), matching the
+  `0o600` enforcement `credentials.py` already applies to the CLI's saved-key
+  file — the config file can hold plaintext upstream API keys when a deployer
+  doesn't use `${ENV_VAR}` placeholders.
+- `run_pipeline` and ranked-choice judge calls no longer silently drop usage
+  from their reported cost. Every non-final pipeline step's token/cost usage
+  is now merged into the total instead of discarded, and the ranked-choice
+  judge's own usage is now included alongside the panel's.
 
 ### Changed
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
