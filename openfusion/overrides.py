@@ -34,6 +34,11 @@ def _default_credentials(config: OpenFusionConfig) -> tuple[str, str]:
     raise ValueError("No upstream credentials available for request overrides")
 
 
+def _narrow(configured: int | None, requested: int) -> int:
+    """Cap ``requested`` at ``configured``, never widen an unset (unbounded) ceiling."""
+    return requested if configured is None else min(configured, requested)
+
+
 def _panel_from_models(models: list[str], base_url: str, api_key: str) -> list[PanelMember]:
     trimmed = [str(m) for m in models if str(m).strip()][:MAX_OVERRIDE_PANEL]
     return [
@@ -91,11 +96,12 @@ def apply_overrides(config: OpenFusionConfig, override: dict[str, Any]) -> OpenF
     max_tokens = override.get("max_tokens")
     if isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens > 0:
         capped = min(max_tokens, MAX_OVERRIDE_TOKENS)
-        new.cost_controls = new.cost_controls.model_copy(
+        current = new.cost_controls
+        new.cost_controls = current.model_copy(
             update={
-                "panel_max_tokens": capped,
-                "judge_max_tokens": capped,
-                "pass_through_max_tokens": capped,
+                "panel_max_tokens": _narrow(current.panel_max_tokens, capped),
+                "judge_max_tokens": _narrow(current.judge_max_tokens, capped),
+                "pass_through_max_tokens": _narrow(current.pass_through_max_tokens, capped),
             }
         )
 

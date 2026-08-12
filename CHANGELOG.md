@@ -73,6 +73,13 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   failure and emits an SSE error chunk + `[DONE]`, matching how
   `vote_and_stream`/`ranked_and_stream`/`synthesize_and_stream` already
   degrade a panel or judge failure after the response has started.
+- `apply_overrides`'s per-request `max_tokens` override no longer widens an
+  operator's configured `panel_max_tokens`/`judge_max_tokens`/`pass_through_max_tokens`
+  ceiling. It previously set the cap to `min(requested, 8192)` unconditionally,
+  so a client request could raise a tighter configured limit (e.g. the default
+  zero-config server's `1024`) up to 8192 — the opposite of the module's own
+  "overrides can't widen those bounds" guarantee. Overrides can still lower a
+  configured ceiling, just not raise it.
 - Per-key rate limiting (`limits.rate_limit_per_minute`) is no longer
   bypassable by rotating the `Authorization: Bearer` header on a deployment
   without a `gateway.api_keys` allowlist. The rate-limit identity is now only

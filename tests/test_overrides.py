@@ -76,6 +76,31 @@ def test_max_tokens_override_is_clamped() -> None:
     assert cfg.cost_controls.judge_max_tokens == 8192
 
 
+def test_max_tokens_override_cannot_widen_configured_ceiling() -> None:
+    """A request-side override may only lower the operator's configured ceiling.
+
+    Regression test: apply_overrides() previously set the cap to
+    ``min(requested, MAX_OVERRIDE_TOKENS)`` unconditionally, which could
+    *raise* an operator's tighter configured limit up to 8192 -- the exact
+    thing the module's docstring says overrides can't do.
+    """
+    base = _base()
+    base.cost_controls = base.cost_controls.model_copy(
+        update={"panel_max_tokens": 512, "judge_max_tokens": 512, "pass_through_max_tokens": 512}
+    )
+    cfg = apply_overrides(base, {"max_tokens": 8000})
+    assert cfg.cost_controls.panel_max_tokens == 512
+    assert cfg.cost_controls.judge_max_tokens == 512
+    assert cfg.cost_controls.pass_through_max_tokens == 512
+
+
+def test_max_tokens_override_can_still_lower_configured_ceiling() -> None:
+    base = _base()
+    base.cost_controls = base.cost_controls.model_copy(update={"panel_max_tokens": 2048})
+    cfg = apply_overrides(base, {"max_tokens": 256})
+    assert cfg.cost_controls.panel_max_tokens == 256
+
+
 def test_base_config_not_mutated() -> None:
     base = _base()
     apply_overrides(base, {"panel": ["a", "b"], "judge": "x"})
