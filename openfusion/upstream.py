@@ -356,7 +356,7 @@ _ANTHROPIC_STOP_REASONS = {
 }
 
 # tool_choice values that map 1-to-1
-_TOOL_CHOICE_MAP = {"none": {"type": "auto"}, "auto": {"type": "auto"}, "required": {"type": "any"}}
+_TOOL_CHOICE_MAP = {"none": {"type": "none"}, "auto": {"type": "auto"}, "required": {"type": "any"}}
 
 
 def _openai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:

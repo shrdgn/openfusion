@@ -46,6 +46,20 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- Panel configs with two members that resolve to the same effective label (an
+  explicit duplicate `label`, or two entries sharing a `model` with no `label`
+  set) are now rejected at config load with a clear error, instead of silently
+  colliding at runtime: debate's peer/self split (`panel.py::_run_debate_round`)
+  previously treated *every* same-labeled response as "self" so duplicate
+  members never debated each other, and the judge synthesis prompt
+  (`synthesize.py`) showed the judge two identically-labeled answers with no
+  way to tell them apart. Self-fusion is exempt (it only reads `panel[0]` and
+  mints its own unique suffixes).
+- An OpenAI-style request with `tool_choice: "none"` sent to an
+  `provider: anthropic` panel/judge member was translated to Anthropic's
+  `{"type": "auto"}` instead of `{"type": "none"}` (`upstream._TOOL_CHOICE_MAP`)
+  — silently discarding a client's explicit "don't call tools this turn" and
+  allowing a `tool_use` response the caller wasn't expecting.
 - Debate revision, judge synthesis, and ranked-choice prompts no longer paste a
   Python `repr()` of a multimodal `content` block list (including raw base64
   image data) into the "original user request" section when the client sends
