@@ -239,6 +239,19 @@ def test_tool_choice_auto_mapped() -> None:
     assert result["tool_choice"] == {"type": "auto"}
 
 
+def test_tool_choice_none_mapped_to_none() -> None:
+    """A client that explicitly disabled tool use for this turn must not have that
+    intent silently downgraded to "auto" (which invites a tool_use response the
+    caller isn't expecting)."""
+    body = {
+        "messages": [{"role": "user", "content": "x"}],
+        "tools": [{"type": "function", "function": {"name": "f", "parameters": {}}}],
+        "tool_choice": "none",
+    }
+    result = _openai_to_anthropic(body, "m", stream=False)
+    assert result["tool_choice"] == {"type": "none"}
+
+
 def test_tool_choice_required_mapped_to_any() -> None:
     body = {
         "messages": [{"role": "user", "content": "x"}],

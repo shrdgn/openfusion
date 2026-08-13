@@ -263,6 +263,16 @@ class AnalysisConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
+    """Per-request time budgets.
+
+    ``member_seconds`` bounds each panel member's call (``panel.py``) and
+    ``judge_seconds`` bounds the judge synthesis call (``stream.py``,
+    ``pipeline.py``) — both are enforced today. ``total_seconds`` is accepted
+    and validated for forward compatibility but is **not currently enforced**
+    anywhere: nothing bounds the aggregate wall-clock time of a request, so
+    setting it does not guarantee a request finishes within that window.
+    """
+
     member_seconds: float = Field(default=120.0, gt=0)
     judge_seconds: float = Field(default=180.0, gt=0)
     total_seconds: float = Field(default=300.0, gt=0)
@@ -339,6 +349,32 @@ class OpenFusionConfig(BaseModel):
     # side-by-side view). Per-request via the `openfusion` override; off for the
     # plain API so intermediate answers aren't exposed by default.
     expose_panel: bool = False
+
+    @model_validator(mode="after")
+    def _unique_panel_labels(self) -> OpenFusionConfig:
+        """Reject panel members that resolve to the same effective label.
+
+        Every downstream consumer of a panel member's label — debate's
+        peer/self split (``panel.py::_run_debate_round``), the judge synthesis
+        prompt (``synthesize.py``), and per-member metrics
+        (``metrics.py::record_panel_member_latency``) — assumes labels are
+        unique. Self-fusion is exempt: it uses only ``panel[0]`` and
+        synthesizes its own unique ``{label}-{n}`` suffixes.
+        """
+        if self.strategy == Strategy.SELF_FUSION:
+            return self
+        seen: set[str] = set()
+        for member in self.panel:
+            effective = member.label or member.model
+            if effective in seen:
+                raise ValueError(
+                    f"Duplicate panel label {effective!r}: give each panel member a "
+                    "distinct `label` (or a distinct `model`, which is used as the "
+                    "label when unset) — debate, judge synthesis, and metrics all "
+                    "key off this label to tell panel members apart."
+                )
+            seen.add(effective)
+        return self
 
     def resolved_pass_through(self) -> PassThroughConfig:
         if self.pass_through is not None:

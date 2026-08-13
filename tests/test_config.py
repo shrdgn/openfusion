@@ -187,6 +187,53 @@ def test_resolved_pass_through_from_panel() -> None:
     assert resolved.model == "solo"
 
 
+def test_duplicate_panel_label_rejected() -> None:
+    """Debate's peer/self split, judge synthesis, and per-member metrics all key off
+    each panel member's effective label — a collision would silently make two
+    distinct members indistinguishable to those consumers.
+    """
+    with pytest.raises(ValueError, match="Duplicate panel label"):
+        OpenFusionConfig.model_validate(
+            {
+                "strategy": "panel",
+                "panel": [
+                    {"base_url": "https://a", "api_key": "k", "model": "m1", "label": "dup"},
+                    {"base_url": "https://b", "api_key": "k", "model": "m2", "label": "dup"},
+                ],
+            }
+        )
+
+
+def test_duplicate_panel_model_without_label_rejected() -> None:
+    """A label defaults to the member's model when unset, so two panel entries
+    with the same model and no explicit label collide the same way."""
+    with pytest.raises(ValueError, match="Duplicate panel label"):
+        OpenFusionConfig.model_validate(
+            {
+                "strategy": "debate",
+                "panel": [
+                    {"base_url": "https://a", "api_key": "k", "model": "same-model"},
+                    {"base_url": "https://b", "api_key": "k", "model": "same-model"},
+                ],
+            }
+        )
+
+
+def test_self_fusion_exempt_from_duplicate_label_check() -> None:
+    """Self-fusion only reads panel[0] and mints its own unique `{label}-{n}`
+    suffixes, so a repeated model/label elsewhere in the list is harmless."""
+    config = OpenFusionConfig.model_validate(
+        {
+            "strategy": "self_fusion",
+            "panel": [
+                {"base_url": "https://a", "api_key": "k", "model": "same-model"},
+                {"base_url": "https://b", "api_key": "k", "model": "same-model"},
+            ],
+        }
+    )
+    assert config.strategy == Strategy.SELF_FUSION
+
+
 def test_base_url_trailing_slash_is_stripped_everywhere() -> None:
     """PanelMember, JudgeConfig, and PassThroughConfig share one strip_trailing_slash
     validator; a trailing slash would otherwise produce a double slash against
