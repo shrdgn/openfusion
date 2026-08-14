@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import logging
+
 import httpx
 import pytest
 import respx
+
+from openfusion import server
 
 
 def _panel_response(content: str) -> httpx.Response:
@@ -116,3 +120,39 @@ async def test_chat_completions_pass_through(
     )
     assert response.status_code == 200
     assert response.json()["choices"][0]["message"]["content"] == "direct"
+
+
+@pytest.mark.asyncio
+async def test_chat_completions_unhandled_exception_is_logged_not_leaked(
+    client: httpx.AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A bug in the fusion path must not leak internals to the client."""
+
+    async def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("db password is hunter2")
+
+    monkeypatch.setattr(server, "buffer_synthesis", _boom)
+
+    with caplog.at_level(logging.ERROR, logger="openfusion.server"):
+        response = await client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "openfusion",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": False,
+            },
+        )
+
+    assert response.status_code == 502
+    body = response.json()
+    assert "hunter2" not in body["error"]["message"]
+
+    # The real cause is still recoverable server-side, just not sent to the client.
+    assert any(
+        record.name == "openfusion.server"
+        and record.exc_info
+        and "hunter2" in str(record.exc_info[1])
+        for record in caplog.records
+    )
