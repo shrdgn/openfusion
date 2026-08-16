@@ -46,6 +46,15 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- The `openfusion chat` REPL's `/tokens N` command no longer permanently ratchets the
+  per-call token cap down: it applied its narrow-only override against the *already
+  narrowed* running config, so `/tokens 100` followed by `/tokens 5000` stayed capped at
+  100 for the rest of the session instead of raising the ceiling back up. `/tokens` and
+  `/preset` now both recompute from the original loaded config, and compose with each
+  other (switching `/preset` no longer silently drops an active `/tokens` override, and
+  vice versa). Also fixed the startup banner's `tools:` line, which reported
+  `web search+fetch` whenever `web_search` was on regardless of `web_fetch`'s actual
+  value (and never mentioned a `web_fetch`-only configuration at all).
 - Debate revision, judge synthesis, and ranked-choice prompts no longer paste a
   Python `repr()` of a multimodal `content` block list (including raw base64
   image data) into the "original user request" section when the client sends

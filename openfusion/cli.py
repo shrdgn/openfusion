@@ -40,7 +40,10 @@ def _summarize_config(config: OpenFusionConfig, host: str, port: int) -> str:
         if config.preset
         else f"strategy={config.strategy.value}"
     )
-    tools = "web search+fetch" if config.tools.web_search else "off"
+    if config.tools.web_search:
+        tools = "web search+fetch" if config.tools.web_fetch else "web search"
+    else:
+        tools = "web fetch" if config.tools.web_fetch else "off"
     lines = [
         "openfusion is starting",
         f"  recipe:   {recipe}  (aggregator={config.aggregator.value})",
@@ -322,6 +325,20 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
         raise SystemExit(1)
 
     base_config = config
+
+    def _rebuild(preset: str | None, tokens: int | None) -> OpenFusionConfig:
+        """Recompute the active config from ``base_config``, so repeated /preset or
+        /tokens commands compose instead of narrowing against each other's output."""
+        cfg = base_config
+        if preset:
+            cfg = apply_overrides(cfg, {"preset": preset})
+        if tokens:
+            cfg = apply_overrides(cfg, {"max_tokens": tokens})
+        return cfg
+
+    active_preset: str | None = None
+    active_max_tokens: int | None = None
+
     console.print(
         Panel(
             f"[bold]openfusion[/bold] — chat with a model panel\n{_models_markup(config)}\n"
@@ -356,14 +373,16 @@ def run_chat(config_path: str | None, max_tokens: int | None) -> None:
                 console.print("[dim]· conversation cleared[/dim]")
             elif cmd == "preset":
                 if arg in ("quality", "budget"):
-                    config = apply_overrides(base_config, {"preset": arg})
+                    active_preset = arg
+                    config = _rebuild(active_preset, active_max_tokens)
                     console.print(f"[dim]· switched to {arg}[/dim]")
                     console.print(_models_markup(config))
                 else:
                     console.print("usage: /preset quality|budget")
             elif cmd == "tokens":
                 if arg.isdigit() and int(arg) > 0:
-                    config = apply_overrides(config, {"max_tokens": int(arg)})
+                    active_max_tokens = int(arg)
+                    config = _rebuild(active_preset, active_max_tokens)
                     console.print(f"[dim]· max tokens per call = {arg}[/dim]")
                 else:
                     console.print("usage: /tokens <n>")
