@@ -9,10 +9,14 @@ import getpass
 import os
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import uvicorn
 import yaml
 from pydantic import ValidationError
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 from openfusion.config import (
     _PRESETS,
@@ -189,7 +193,7 @@ def _ask_cli(argv: list[str]) -> None:
 
 
 async def _chat_turn(
-    messages: list[dict[str, str]], config: OpenFusionConfig, console: object | None = None
+    messages: list[dict[str, str]], config: OpenFusionConfig, console: Console | None = None
 ) -> str:
     """Run one fusion turn over the conversation; return the answer text.
 
@@ -235,7 +239,7 @@ async def _chat_turn(
 
         total = len(expand_panel_members(config))
         done = {"n": 0}
-        content: str | None = None
+        answer: str | None = None
         with console.status("[dim]querying panel…[/dim]", spinner="dots") as status:
 
             async def on_member(_label: str, _model: str, _ok: bool, _content: str) -> None:
@@ -245,16 +249,16 @@ async def _chat_turn(
             panel = await gather_panel(body, config, client, on_member=on_member)
             status.update("[dim]synthesizing…[/dim]")
             if config.aggregator == Aggregator.VOTE:
-                content, _ = majority_vote(panel)
+                answer, _ = majority_vote(panel)
             elif config.aggregator == Aggregator.RANKED:
-                content, _ = await pick_best(
+                answer, _ = await pick_best(
                     body, panel, config, client, timeout=config.timeouts.judge_seconds
                 )
 
         console.print("[bold magenta]●[/bold magenta] [bold]openfusion[/bold]")
-        if content is not None:
-            parts.append(content)
-            console.print(Markdown(content))
+        if answer is not None:
+            parts.append(answer)
+            console.print(Markdown(answer))
         else:
             with Live(console=console, refresh_per_second=12, vertical_overflow="visible") as live:
                 async for delta, _u, _r in synthesize(
