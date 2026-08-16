@@ -8,6 +8,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from rich.console import Console
 
 from openfusion import cli
 from openfusion.cli import (
@@ -19,6 +20,7 @@ from openfusion.cli import (
     build_setup_yaml,
     main,
     run_ask,
+    run_chat,
     run_server,
 )
 from openfusion.config import (
@@ -150,6 +152,93 @@ def test_models_markup_handles_no_judge() -> None:
         panel=[PanelMember(base_url="https://example.com/v1", api_key="k", model="m1")],
     )
     assert "—" in _models_markup(config)
+
+
+# ---------------------------------------------------------------------------
+# _summarize_config tools label
+# ---------------------------------------------------------------------------
+
+
+def test_summarize_config_reports_fetch_only_when_search_is_off(tmp_path: Path) -> None:
+    config = OpenFusionConfig(
+        panel=[PanelMember(base_url="https://example.com/v1", api_key="k", model="m1")],
+    )
+    config.tools.web_search = False
+    config.tools.web_fetch = True
+
+    summary = _summarize_config(config, "0.0.0.0", 8000)
+
+    assert "tools:    web fetch" in summary
+    assert "search" not in summary.split("tools:")[1].split("\n")[0]
+
+
+def test_summarize_config_reports_search_only_when_fetch_is_off(tmp_path: Path) -> None:
+    config = OpenFusionConfig(
+        panel=[PanelMember(base_url="https://example.com/v1", api_key="k", model="m1")],
+    )
+    config.tools.web_search = True
+    config.tools.web_fetch = False
+
+    summary = _summarize_config(config, "0.0.0.0", 8000)
+
+    assert "tools:    web search" in summary
+    assert "fetch" not in summary.split("tools:")[1].split("\n")[0]
+
+
+# ---------------------------------------------------------------------------
+# run_chat REPL commands
+# ---------------------------------------------------------------------------
+
+
+def _run_repl(
+    monkeypatch: pytest.MonkeyPatch,
+    config_path: Path,
+    inputs: list[str],
+    seen_max_tokens: list[int | None],
+) -> None:
+    async def fake_chat_turn(messages, config, console):  # type: ignore[no-untyped-def]
+        seen_max_tokens.append(config.cost_controls.panel_max_tokens)
+        return "ok"
+
+    monkeypatch.setattr(cli, "_chat_turn", fake_chat_turn)
+    it = iter(inputs)
+    monkeypatch.setattr(Console, "input", lambda self, *_a, **_k: next(it))
+
+    run_chat(str(config_path), None)
+
+
+def test_tokens_command_can_raise_the_limit_back_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "openfusion.yaml"
+    config_path.write_text(build_setup_yaml("budget", "sk-test"), encoding="utf-8")
+    seen_max_tokens: list[int | None] = []
+
+    _run_repl(
+        monkeypatch,
+        config_path,
+        ["/tokens 100", "hi", "/tokens 5000", "hi", "/quit"],
+        seen_max_tokens,
+    )
+
+    assert seen_max_tokens == [100, 5000]
+
+
+def test_preset_switch_preserves_an_active_tokens_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_path = tmp_path / "openfusion.yaml"
+    config_path.write_text(build_setup_yaml("budget", "sk-test"), encoding="utf-8")
+    seen_max_tokens: list[int | None] = []
+
+    _run_repl(
+        monkeypatch,
+        config_path,
+        ["/tokens 250", "/preset quality", "hi", "/quit"],
+        seen_max_tokens,
+    )
+
+    assert seen_max_tokens == [250]
 
 
 # ---------------------------------------------------------------------------
