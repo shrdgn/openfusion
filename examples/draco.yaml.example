@@ -51,12 +51,14 @@ pass_through:
   api_key: ${OPENROUTER_API_KEY}
   model: deepseek/deepseek-v4-pro
 
-# Agentic tool loops + long answers are slow; widen the budgets and keep the
-# total under the bench client's 360s timeout.
+# Agentic tool loops + long answers are slow; widen the budgets. Worst case is
+# member_seconds + judge_seconds = 420s (panel runs concurrently, judge follows),
+# so total_seconds is set above that with headroom — bench/draco_eval.py sizes
+# its own HTTP client timeout off these same values rather than assuming 360s.
 timeouts:
   member_seconds: 240
   judge_seconds: 180
-  total_seconds: 350
+  total_seconds: 450
 
 gateway:
   api_keys: []

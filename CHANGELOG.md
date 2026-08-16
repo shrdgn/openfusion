@@ -46,6 +46,17 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `bench/draco_eval.py`'s HTTP client no longer assumes a hardcoded 360s timeout
+  (`bench.run._chat`'s shared default) for every config it's pointed at. It now sizes its
+  request timeout from the config under test (`member_seconds + judge_seconds + 30s`
+  margin), so a config that deliberately widens those budgets for slow agentic tool
+  loops — like `examples/draco.yaml.example`'s `member_seconds: 240` /
+  `judge_seconds: 180` (worst case 420s) — no longer has its bench HTTP calls killed
+  client-side and misrecorded as task failures partway through a legitimately slow but
+  successful run. Also fixed `draco.yaml.example`'s own `total_seconds: 350`, which was
+  below `member_seconds + judge_seconds` (420) and thus inconsistent with the field's
+  documented "aggregate wall-clock cap" semantics (see #140) — it's now `450`, above the
+  worst case with headroom.
 - Debate revision, judge synthesis, and ranked-choice prompts no longer paste a
   Python `repr()` of a multimodal `content` block list (including raw base64
   image data) into the "original user request" section when the client sends
