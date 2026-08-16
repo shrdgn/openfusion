@@ -109,6 +109,7 @@ def _grade(
     task: DracoTask,
     answer: str,
     grading_runs: int,
+    timeout: float,
 ) -> float | None:
     """Mean normalized score over grading runs, or None if all runs unparsed."""
     prompt = GRADE_PROMPT.format(
@@ -128,6 +129,7 @@ def _grade(
                 api_key=api_key,
                 max_tokens=2048,
                 temperature=0.2,
+                timeout=timeout,
             )
         except httpx.HTTPError:
             continue
@@ -147,6 +149,14 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
     solo_tools = build_web_tools(config.tools)
     solo_extra = {"tools": solo_tools} if solo_tools else None
 
+    # The fusion path can legitimately take up to member_seconds + judge_seconds
+    # server-side (panel members run concurrently, judge synthesis follows), which
+    # for a config like draco.yaml.example's widened agentic-tool-loop budgets
+    # exceeds bench.run._chat's shared 360s default. Size the client timeout from
+    # the config under test so a slow-but-successful run isn't killed client-side
+    # and misrecorded as a failure.
+    request_timeout = config.timeouts.member_seconds + config.timeouts.judge_seconds + 30.0
+
     scores: list[TaskScore] = []
     errors: list[str] = []
     with httpx.Client() as client:
@@ -163,6 +173,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     api_key=gateway_key,
                     max_tokens=args.answer_tokens,
                     extra_body=solo_extra,
+                    timeout=request_timeout,
                 )
                 fusion_answer, _, _ = _chat_with_retry(
                     client,
@@ -171,6 +182,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     prompt=task.problem,
                     api_key=gateway_key,
                     max_tokens=args.answer_tokens,
+                    timeout=request_timeout,
                 )
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 reason = f"{task.id}: {type(exc).__name__}: {str(exc)[:200]}"
@@ -186,6 +198,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                 task=task,
                 answer=solo_answer,
                 grading_runs=args.grading_runs,
+                timeout=request_timeout,
             )
             fusion_score = _grade(
                 client,
@@ -195,6 +208,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                 task=task,
                 answer=fusion_answer,
                 grading_runs=args.grading_runs,
+                timeout=request_timeout,
             )
             scores.append(TaskScore(task.id, task.domain, solo_score, fusion_score))
 
