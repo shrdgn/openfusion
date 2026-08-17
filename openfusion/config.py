@@ -125,7 +125,7 @@ class JudgeConfig(BaseModel):
 
 class SelfFusionConfig(BaseModel):
     n: int = Field(default=3, ge=1, le=16)
-    temperature_spread: list[float] = Field(default_factory=lambda: [0.3, 0.7, 1.0])
+    temperature_spread: list[float] = Field(default_factory=lambda: [0.3, 0.7, 1.0], min_length=1)
     seed_offset: bool = True
 
 

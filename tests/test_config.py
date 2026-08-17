@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from openfusion.config import (
     Aggregator,
@@ -14,6 +15,7 @@ from openfusion.config import (
     OpenFusionConfig,
     PanelMember,
     PassThroughConfig,
+    SelfFusionConfig,
     Strategy,
     load_config,
 )
@@ -80,6 +82,11 @@ def test_load_dev_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     assert config.self_fusion.n == 2
     assert config.panel[0].model == "openai/gpt-4o-mini"
     assert config.cost_controls.pass_through_max_tokens == 80
+
+
+def test_self_fusion_rejects_empty_temperature_spread() -> None:
+    with pytest.raises(ValidationError):
+        SelfFusionConfig(temperature_spread=[])
 
 
 def test_gateway_keys_from_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
