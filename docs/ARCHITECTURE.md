@@ -35,7 +35,7 @@ openfusion is a thin FastAPI proxy. Each module owns one concern so strategies, 
 Client → server.py
            ├─ model != openfusion → upstream.py (pass-through)
            ├─ client function tools / tool-call turn → upstream.py (pass-through, no fusion)
-           ├─ router.route() == SOLO → upstream.py (pass-through, single model)
+           ├─ router.route_request() == SOLO → upstream.py (pass-through, single model)
            └─ model == openfusion (incl. server-executable web tools)
                  ├─ strategy == pipeline → pipeline.run_pipeline()
                  │                          (chains solo/fuse steps, streams the last step)
@@ -52,7 +52,7 @@ mid-conversation tool turns (which pass through, since their results return thro
 ## Extension points
 
 1. **Synthesis strategies** — `strategy` selects how the panel is produced (`self_fusion`, `panel`, `debate`, `pipeline`); `aggregator` selects how answers combine (`judge`, `vote`). Add a new strategy by extending `panel.expand_panel_members` / `gather_panel`, or a new aggregator alongside `synthesize`/`vote`. `pipeline` is a parallel code path (`pipeline.run_pipeline`) rather than a panel/aggregator variant — it chains `solo`/`fuse` steps sequentially instead of fusing one panel.
-2. **Router gate** — `router.route()` runs before `gather_panel` in `server.py`. Today it is a heuristic; swap in an LLM classifier behind the same `RouteDecision` return type.
+2. **Router gate** — `router.route_request()` runs before `gather_panel` in `server.py`; it already supports both a heuristic and an LLM classifier (`router.mode: model`, see `router._classify_route`), with automatic fallback to the heuristic on any classifier error.
 3. **Eval harness** — `bench/` calls the same HTTP surface as production clients; no special internal APIs.
 4. **Embedding** — `create_app(config_resolver=...)` resolves config per request for multi-tenant/hosted wrappers; see [docs/EMBEDDING.md](EMBEDDING.md).
 
