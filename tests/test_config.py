@@ -15,6 +15,7 @@ from openfusion.config import (
     PanelMember,
     PassThroughConfig,
     Strategy,
+    TimeoutsConfig,
     load_config,
 )
 
@@ -67,6 +68,33 @@ def test_load_config_no_warning_when_owner_only(
         load_config(config_path)
 
     assert not caplog.records
+
+
+@pytest.mark.parametrize("example_path", sorted(Path("examples").glob("*.yaml.example")))
+def test_every_example_config_loads(
+    example_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No shipped example should fail validation, e.g. an impossible
+    ``timeouts.total_seconds`` (see issue #140)."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "secret-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "secret-key")
+    monkeypatch.setenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+    config_path = tmp_path / "openfusion.yaml"
+    config_path.write_text(example_path.read_text(encoding="utf-8"), encoding="utf-8")
+
+    load_config(config_path)
+
+
+def test_timeouts_config_rejects_total_below_member_plus_judge() -> None:
+    with pytest.raises(ValueError, match="total_seconds"):
+        TimeoutsConfig(member_seconds=240, judge_seconds=180, total_seconds=350)
+
+
+def test_timeouts_config_accepts_total_at_or_above_member_plus_judge() -> None:
+    exact = TimeoutsConfig(member_seconds=120, judge_seconds=180, total_seconds=300)
+    assert exact.total_seconds == 300
+    headroom = TimeoutsConfig(member_seconds=120, judge_seconds=180, total_seconds=360)
+    assert headroom.total_seconds == 360
 
 
 def test_load_dev_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -45,7 +45,20 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hard). `mode: never` gives pure routing; `mode: heuristic` fuses hard prompts
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
-### Fixed
+- `timeouts.total_seconds` now rejects configs where it's set below
+  `member_seconds + judge_seconds` (`TimeoutsConfig` model validator) — such a value
+  can never be satisfied by a request that legitimately uses its full member and judge
+  budgets, and three shipped examples (`draco.yaml.example`, `panel-strongsynth.yaml.example`,
+  `panel-tools.yaml.example`) shipped exactly that. `total_seconds` isn't enforced as
+  an aggregate wall-clock cap yet (see #140); this closes the "impossible config" half
+  of that gap and adds a smoke test that loads every `examples/*.yaml.example`. Fixing
+  those examples' values also exposed a matching bug in the bench harness: with the
+  widened per-phase budgets those configs use for slow agentic tool loops, worst-case
+  request latency (up to `member_seconds + judge_seconds`) can exceed `bench.run._chat`'s
+  shared 360s default HTTP timeout — so `bench/draco_eval.py` and `bench/research_eval.py`
+  now size their own client timeout off the config under test
+  (`member_seconds + judge_seconds + 30s` margin) instead, so a slow-but-successful bench
+  run isn't killed client-side and misrecorded as a failure.
 - Debate revision, judge synthesis, and ranked-choice prompts no longer paste a
   Python `repr()` of a multimodal `content` block list (including raw base64
   image data) into the "original user request" section when the client sends
