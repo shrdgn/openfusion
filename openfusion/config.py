@@ -263,9 +263,30 @@ class AnalysisConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
+    """Per-phase request deadlines.
+
+    ``total_seconds`` is not yet enforced as an aggregate wall-clock cap (see
+    https://github.com/shahar-dagan/openfusion/issues/140) — only
+    ``member_seconds`` and ``judge_seconds`` bound live calls today. It's
+    still validated against them here so a config can't ship a value that
+    would already be impossible to satisfy once enforcement lands.
+    """
+
     member_seconds: float = Field(default=120.0, gt=0)
     judge_seconds: float = Field(default=180.0, gt=0)
     total_seconds: float = Field(default=300.0, gt=0)
+
+    @model_validator(mode="after")
+    def _check_total_covers_phases(self) -> TimeoutsConfig:
+        phase_sum = self.member_seconds + self.judge_seconds
+        if self.total_seconds < phase_sum:
+            raise ValueError(
+                "timeouts.total_seconds "
+                f"({self.total_seconds}) is less than member_seconds + judge_seconds "
+                f"({phase_sum}); a request that legitimately uses its full member and "
+                "judge budgets could never finish within total_seconds"
+            )
+        return self
 
 
 class GatewayAuthConfig(BaseModel):

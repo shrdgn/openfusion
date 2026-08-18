@@ -125,6 +125,13 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
     solo_tools = build_web_tools(config.tools)
     solo_extra = {"tools": solo_tools} if solo_tools else None
 
+    # The fusion path can legitimately take up to member_seconds + judge_seconds
+    # server-side (panel members run concurrently, judge synthesis follows). For
+    # configs like panel-strongsynth.yaml.example / panel-tools.yaml.example that's
+    # 360s — at or past bench.run._chat's shared 360s default — so size the client
+    # timeout from the config under test instead of assuming that default covers it.
+    request_timeout = config.timeouts.member_seconds + config.timeouts.judge_seconds + 30.0
+
     results: list[PairResult] = []
     errors: list[str] = []
     with httpx.Client() as client:
@@ -138,6 +145,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     api_key=gateway_key,
                     max_tokens=args.max_tokens,
                     extra_body=solo_extra,
+                    timeout=request_timeout,
                 )
                 fusion_answer, _, fusion_usage = _chat(
                     client,
@@ -146,6 +154,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     prompt=task.prompt,
                     api_key=gateway_key,
                     max_tokens=args.max_tokens,
+                    timeout=request_timeout,
                 )
 
                 fa = fusion_is_a(task.id)
@@ -165,6 +174,7 @@ def run_eval(args: argparse.Namespace) -> dict[str, Any]:
                     api_key=gateway_key,
                     max_tokens=16,
                     temperature=0.2,
+                    timeout=request_timeout,
                 )
             except (httpx.HTTPError, KeyError, ValueError) as exc:
                 # One flaky/slow upstream call shouldn't waste the whole run;
