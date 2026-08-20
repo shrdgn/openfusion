@@ -213,6 +213,17 @@ async def test_rejects_non_list_messages(client: httpx.AsyncClient) -> None:
     assert "messages" in data["error"]["message"]
 
 
+async def test_rejects_non_dict_message_item(client: httpx.AsyncClient) -> None:
+    response = await client.post(
+        "/v1/chat/completions",
+        json={"model": "openfusion", "messages": [{"role": "user", "content": "hi"}, "oops"]},
+    )
+    assert response.status_code == 400
+    data = response.json()
+    assert data["error"]["type"] == "invalid_request_error"
+    assert "messages" in data["error"]["message"]
+
+
 async def test_openfusion_rejects_judge_over_limit(
     test_config: OpenFusionConfig,
     mock_router,
