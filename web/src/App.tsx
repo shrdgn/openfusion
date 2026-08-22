@@ -184,6 +184,7 @@ export default function App() {
   const [analysis, setAnalysis] = useState<Record<string, unknown> | null>(null);
   const [usage, setUsage] = useState<UsagePayload | null>(null);
   const answerRef = useRef("");
+  const runIdRef = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
 
@@ -303,6 +304,9 @@ export default function App() {
   async function run() {
     if (busy || !prompt.trim()) return;
 
+    const myRun = ++runIdRef.current;
+    const isCurrent = () => runIdRef.current === myRun;
+
     const convId = ensureActiveConversation();
     setBusy(true);
     setStatus("Sending…");
@@ -339,32 +343,45 @@ export default function App() {
     let finalAnalysis: Record<string, unknown> | null = null;
     let finalUsage: UsagePayload | null = null;
     const capturedAnswers: PanelAnswer[] = [];
+    let localAnswer = "";
 
     await streamFusion(payload, token.trim() || undefined, {
-      onProgress: (e: ProgressEvent) => handleProgress(e),
+      onProgress: (e: ProgressEvent) => { if (isCurrent()) handleProgress(e); },
       onPanelAnswer: (a: PanelAnswer) => {
         capturedAnswers.push(a);
-        flushSync(() => setPanelAnswers((prev) => [...prev.filter((p) => p.model !== a.model), a]));
+        if (isCurrent()) {
+          flushSync(() => setPanelAnswers((prev) => [...prev.filter((p) => p.model !== a.model), a]));
+        }
       },
       onContent: (text) => {
-        answerRef.current += text;
-        flushSync(() => {
-          setStreamingAnswer(answerRef.current);
-          setProgress((p) => (p ? { ...p, streaming: true } : p));
-        });
+        localAnswer += text;
+        if (isCurrent()) {
+          answerRef.current = localAnswer;
+          flushSync(() => {
+            setStreamingAnswer(localAnswer);
+            setProgress((p) => (p ? { ...p, streaming: true } : p));
+          });
+        }
       },
       onAnalysis: (a) => {
         finalAnalysis = a;
-        setAnalysis(a);
+        if (isCurrent()) setAnalysis(a);
       },
       onUsage: (u) => {
         finalUsage = u;
-        setUsage(u);
+        if (isCurrent()) setUsage(u);
       },
-      onError: (msg) => { setStatus("Error: " + msg); setBusy(false); setPrompt(submittedPrompt); setAttachedFiles(submittedFiles); },
+      onError: (msg) => {
+        if (isCurrent()) {
+          setStatus("Error: " + msg);
+          setBusy(false);
+          setPrompt(submittedPrompt);
+          setAttachedFiles(submittedFiles);
+        }
+      },
     });
 
-    const finalAnswer = answerRef.current;
+    const finalAnswer = localAnswer;
 
     // Persist the turn
     const turn: ConversationTurn = {
@@ -386,9 +403,11 @@ export default function App() {
       }),
     );
 
-    setBusy(false);
-    setProgress((p) => (p ? { ...p, streaming: true } : p));
-    setStatus((s) => (s.startsWith("Error") ? s : "Done."));
+    if (isCurrent()) {
+      setBusy(false);
+      setProgress((p) => (p ? { ...p, streaming: true } : p));
+      setStatus((s) => (s.startsWith("Error") ? s : "Done."));
+    }
   }
 
   function handleProgress(e: ProgressEvent) {
@@ -437,6 +456,7 @@ export default function App() {
   }
 
   function startNewConversation() {
+    runIdRef.current++;
     const conv = newConversation();
     setConversations((prev) => [conv, ...prev]);
     setActiveId(conv.id);
@@ -450,6 +470,7 @@ export default function App() {
   }
 
   function switchConversation(id: string) {
+    runIdRef.current++;
     setActiveId(id);
     setStreamingAnswer("");
     setPanelAnswers([]);
@@ -466,7 +487,10 @@ export default function App() {
     if (activeId === id) {
       const remaining = conversations.filter((c) => c.id !== id);
       if (remaining.length > 0) switchConversation(remaining[0].id);
-      else setActiveId("");
+      else {
+        runIdRef.current++;
+        setActiveId("");
+      }
     }
   }
 
