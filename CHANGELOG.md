@@ -46,6 +46,17 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- The playground no longer lets a stream still running in the background bleed
+  its output into whatever conversation is on screen after you switch away from
+  it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
+  run id; `switchConversation`/`startNewConversation`/`deleteConversation`
+  invalidate it, and the request's callbacks drop live-view updates
+  (`streamingAnswer`, `panelAnswers`, `progress`, `analysis`, `usage`) once
+  they're no longer current — while still saving the finished turn to its own
+  conversation. Previously `switchConversation` reset `busy` without
+  invalidating the prior run, so a second request started right after a switch
+  shared the same `answerRef`/state and could interleave its content with the
+  stale one's. Closes #154.
 - Debate revision, judge synthesis, and ranked-choice prompts no longer paste a
   Python `repr()` of a multimodal `content` block list (including raw base64
   image data) into the "original user request" section when the client sends

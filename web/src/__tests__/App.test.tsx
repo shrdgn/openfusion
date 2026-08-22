@@ -549,6 +549,61 @@ describe("App", () => {
     expect(screen.queryByText("answer two")).not.toBeInTheDocument();
   });
 
+  it("does not let a stale in-flight run corrupt the conversation switched to (#154)", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+
+    // Conversation B completes normally, so it exists in the sidebar to switch to.
+    streamFusion.mockImplementationOnce(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("answer B");
+      },
+    );
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "question B");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("answer B");
+
+    // Start conversation A and leave its run in flight (never resolved in this test).
+    let handlersA: StreamHandlers | undefined;
+    streamFusion.mockImplementationOnce(
+      (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlersA = handlers;
+        return new Promise<void>(() => {});
+      },
+    );
+    await user.click(screen.getByTitle("New conversation"));
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "question A");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await waitFor(() => expect(handlersA).toBeDefined());
+
+    // Switch back to conversation B mid-stream (the bug in #154: this used to reset
+    // `busy` and leave A's still-running stream free to write into whatever
+    // conversation is now on screen).
+    await user.click(screen.getAllByText("question B")[0]);
+
+    // Sending a new message in B starts a second, concurrent run.
+    let handlersB2: StreamHandlers | undefined;
+    streamFusion.mockImplementationOnce(
+      (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlersB2 = handlers;
+        return new Promise<void>(() => {});
+      },
+    );
+    await user.type(screen.getByPlaceholderText("Continue the conversation…"), "question B2");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await waitFor(() => expect(handlersB2).toBeDefined());
+    handlersB2!.onContent?.("B2 live chunk");
+    await screen.findByText("B2 live chunk");
+
+    // A's stale run is still streaming in the background — it must not bleed into
+    // B2's live view, which is what's currently on screen.
+    handlersA!.onContent?.("stale chunk from A");
+    expect(screen.queryByText(/stale chunk from A/)).not.toBeInTheDocument();
+    expect(screen.getByText(/B2 live chunk/)).toBeInTheDocument();
+  });
+
   it("branches from a completed turn and preserves context", async () => {
     const user = userEvent.setup();
     getConfig.mockResolvedValue(baseConfig());
