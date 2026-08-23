@@ -81,3 +81,123 @@ async def test_usage_callback_fires_on_fusion(mock_router) -> None:
     assert len(seen) == 1
     assert seen[0][0] == "/v1/chat/completions"
     assert seen[0][1] is not None  # usage dict was passed
+
+
+async def _pipeline_config(**kwargs: object) -> OpenFusionConfig:
+    from openfusion.config import PipelineConfig, PipelineStepConfig, PipelineStepUse, Strategy
+
+    return OpenFusionConfig(
+        strategy=Strategy.PIPELINE,
+        pipeline=PipelineConfig(
+            steps=[PipelineStepConfig(name="answer", use=PipelineStepUse.SOLO)]
+        ),
+        panel=[PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1")],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
+        **kwargs,
+    )
+
+
+async def test_usage_callback_fires_on_pipeline_non_streaming(mock_router) -> None:
+    seen: list = []
+
+    async def usage_cb(request, usage):
+        seen.append(usage)
+
+    sse_body = (
+        'data: {"choices":[{"delta":{"role":"assistant","content":"ok"}'
+        ',"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, text=sse_body, headers={"content-type": "text/event-stream"}
+        )
+    )
+    config = await _pipeline_config()
+    app = create_app(config, usage_callback=usage_cb)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        await client.post(
+            "/v1/chat/completions",
+            json={"model": "openfusion", "messages": [{"role": "user", "content": "q"}]},
+        )
+    await app.state.upstream_client.aclose()
+
+    assert len(seen) == 1
+    assert seen[0] is not None
+
+
+async def test_usage_callback_fires_on_pipeline_streaming(mock_router) -> None:
+    seen: list = []
+
+    async def usage_cb(request, usage):
+        seen.append(usage)
+
+    sse_body = (
+        'data: {"choices":[{"delta":{"role":"assistant","content":"hi"}'
+        ',"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, text=sse_body, headers={"content-type": "text/event-stream"}
+        )
+    )
+    config = await _pipeline_config()
+    app = create_app(config, usage_callback=usage_cb)
+
+    transport = httpx.ASGITransport(app=app)
+    async with (
+        httpx.AsyncClient(transport=transport, base_url="http://test") as client,
+        client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "openfusion",
+                "messages": [{"role": "user", "content": "q"}],
+                "stream": True,
+            },
+        ) as response,
+    ):
+        async for _ in response.aiter_lines():
+            pass
+    await app.state.upstream_client.aclose()
+
+    assert len(seen) == 1
+    assert seen[0] is not None
+
+
+async def test_pipeline_response_cache_hits_on_repeat_request(mock_router) -> None:
+    from openfusion.config import ResponseCacheConfig
+
+    sse_body = (
+        'data: {"choices":[{"delta":{"role":"assistant","content":"ok"}'
+        ',"finish_reason":null}]}\n\n'
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}],'
+        '"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n'
+        "data: [DONE]\n\n"
+    )
+    route = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, text=sse_body, headers={"content-type": "text/event-stream"}
+        )
+    )
+    config = await _pipeline_config(response_cache=ResponseCacheConfig(enabled=True))
+    app = create_app(config)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        body = {"model": "openfusion", "messages": [{"role": "user", "content": "q"}]}
+        first = await client.post("/v1/chat/completions", json=body)
+        second = await client.post("/v1/chat/completions", json=body)
+    await app.state.upstream_client.aclose()
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json()["cached"] is True
+    assert route.call_count == 1

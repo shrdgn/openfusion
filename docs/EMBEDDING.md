@@ -41,7 +41,8 @@ host.mount("/", create_app(config_resolver=resolve_config))
 
 ## Usage & cost (metering)
 
-Pass a `usage_callback` to meter every fused request (streaming and non-streaming):
+Pass a `usage_callback` to meter every fused request (streaming and non-streaming,
+including the sequential `pipeline` strategy):
 
 ```python
 async def meter(request, usage):       # usage: {prompt_tokens, completion_tokens, total_tokens, cost}
@@ -58,7 +59,9 @@ panel and judge).
 
 Set `response_cache.enabled` in the config to serve identical requests (same
 prompt + recipe) from an in-process TTL/LRU cache — instant and free until they
-expire. Cached responses are flagged `cached: true`.
+expire. Cached responses are flagged `cached: true`. This applies to every
+fusion strategy, including `pipeline` — the cache key folds in `strategy`, so
+pipeline and panel answers for the same prompt never collide.
 
 The cache is a single process-wide store shared by every request, regardless of
 `config_resolver`. Its key folds in a fingerprint of the resolved panel/judge API
