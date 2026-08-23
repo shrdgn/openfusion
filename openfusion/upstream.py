@@ -373,6 +373,47 @@ def _openai_tools_to_anthropic(tools: list[dict[str, Any]]) -> list[dict[str, An
     return out
 
 
+def _openai_image_block_to_anthropic(block: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert an OpenAI ``image_url`` content block to Anthropic's ``image`` shape."""
+    url = (block.get("image_url") or {}).get("url")
+    if not isinstance(url, str) or not url:
+        return None
+    if url.startswith("data:"):
+        header, _, data = url.partition(",")
+        if not data:
+            return None
+        media_type = header.removeprefix("data:").split(";")[0] or "application/octet-stream"
+        return {
+            "type": "image",
+            "source": {"type": "base64", "media_type": media_type, "data": data},
+        }
+    return {"type": "image", "source": {"type": "url", "url": url}}
+
+
+def _openai_content_to_anthropic(content: Any) -> Any:
+    """Convert OpenAI multimodal ``content`` to Anthropic content blocks.
+
+    ``content`` is either a plain string (returned unchanged) or a list of
+    OpenAI-style blocks. Text blocks pass through; ``image_url`` blocks
+    translate to Anthropic's ``{"type": "image", "source": ...}`` shape, since
+    Anthropic's Messages API rejects the OpenAI ``image_url`` block verbatim.
+    Any other/unsupported block type is dropped rather than forwarded as-is.
+    """
+    if not isinstance(content, list):
+        return content
+    blocks: list[dict[str, Any]] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text":
+            blocks.append({"type": "text", "text": block.get("text", "")})
+        elif block.get("type") == "image_url":
+            image = _openai_image_block_to_anthropic(block)
+            if image is not None:
+                blocks.append(image)
+    return blocks
+
+
 def _openai_message_to_anthropic(msg: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a single OpenAI message to Anthropic format.
 
@@ -417,7 +458,7 @@ def _openai_message_to_anthropic(msg: dict[str, Any]) -> dict[str, Any] | None:
             )
         return {"role": "assistant", "content": blocks}
 
-    return {"role": role, "content": msg.get("content") or ""}
+    return {"role": role, "content": _openai_content_to_anthropic(msg.get("content")) or ""}
 
 
 def _openai_to_anthropic(body: dict[str, Any], model: str, *, stream: bool) -> dict[str, Any]:
