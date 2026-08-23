@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import sys
 from pathlib import Path
 
@@ -20,6 +21,7 @@ from openfusion.cli import (
     main,
     run_ask,
     run_server,
+    run_setup,
 )
 from openfusion.config import (
     Aggregator,
@@ -291,6 +293,49 @@ def test_main_dispatches_ask_to_ask_cli(monkeypatch: pytest.MonkeyPatch) -> None
     main()
 
     assert captured["argv"] == ["hello"]
+
+
+def test_run_setup_writes_config_file_private(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": "sk-or-test")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+
+    run_setup()
+
+    path = tmp_path / "openfusion.yaml"
+    assert path.exists()
+    mode = stat.S_IMODE(path.stat().st_mode)
+    assert mode == 0o600
+
+
+def test_run_setup_config_file_created_private_even_if_chmod_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The key-bearing openfusion.yaml must be created with 0o600 directly, not
+    widened then narrowed.
+
+    Regression test mirroring test_credentials.py's TOCTOU check for a window
+    where the file was written with the process's default (umask-derived)
+    permissions and only restricted to 0o600 afterwards via a separate chmod.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.setattr("getpass.getpass", lambda prompt="": "sk-or-test")
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+
+    def boom(self: Path, mode: int) -> None:
+        raise OSError("chmod unsupported")
+
+    monkeypatch.setattr(Path, "chmod", boom)
+
+    run_setup()
+
+    path = tmp_path / "openfusion.yaml"
+    mode = stat.S_IMODE(path.stat().st_mode)
+    assert mode == 0o600
 
 
 def test_main_dispatches_setup_to_run_setup(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -108,8 +108,14 @@ def run_setup() -> None:
     choice = input("Recipe — [1] Budget (cheaper)  [2] Quality (stronger)  [1/2, default 1]: ")
     preset = "quality" if choice.strip() == "2" else "budget"
 
-    path.write_text(build_setup_yaml(preset, key), encoding="utf-8")
+    # Open with mode 0o600 up front so the key-bearing file is never briefly
+    # world/group-readable under the umask's default permissions before being
+    # restricted (same rationale as credentials.save_key).
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(build_setup_yaml(preset, key))
     with contextlib.suppress(OSError):
+        # Belt-and-suspenders for a pre-existing file created with looser permissions.
         path.chmod(0o600)
     save_key(key)  # also persist for `openfusion` runs from other directories
 
