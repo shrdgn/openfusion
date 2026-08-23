@@ -394,6 +394,79 @@ def test_content_block_start_text_returns_none() -> None:
     assert _anthropic_stream_event_to_openai(event) is None
 
 
+# ---------------------------------------------------------------------------
+# Multimodal content translation
+# ---------------------------------------------------------------------------
+
+
+def test_image_url_data_uri_converted_to_anthropic_source() -> None:
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "What's in this image?"},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,AAAA"},
+                    },
+                ],
+            }
+        ]
+    }
+    result = _openai_to_anthropic(body, "claude-3-opus", stream=False)
+    blocks = result["messages"][0]["content"]
+    assert blocks[0] == {"type": "text", "text": "What's in this image?"}
+    assert blocks[1] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
+    }
+
+
+def test_image_url_http_url_converted_to_anthropic_url_source() -> None:
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "https://example.com/cat.png"},
+                    }
+                ],
+            }
+        ]
+    }
+    result = _openai_to_anthropic(body, "claude-3-opus", stream=False)
+    blocks = result["messages"][0]["content"]
+    assert blocks[0] == {
+        "type": "image",
+        "source": {"type": "url", "url": "https://example.com/cat.png"},
+    }
+
+
+def test_unsupported_content_block_dropped() -> None:
+    body = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "hi"},
+                    {"type": "input_audio", "input_audio": {"data": "x", "format": "wav"}},
+                ],
+            }
+        ]
+    }
+    result = _openai_to_anthropic(body, "claude-3-opus", stream=False)
+    blocks = result["messages"][0]["content"]
+    assert blocks == [{"type": "text", "text": "hi"}]
+
+
+def test_string_content_still_passed_through_unchanged() -> None:
+    result = _openai_message_to_anthropic({"role": "user", "content": "plain text"})
+    assert result == {"role": "user", "content": "plain text"}
+
+
 def test_panel_member_explicit_provider_wins() -> None:
     from openfusion.config import PanelMember
 
