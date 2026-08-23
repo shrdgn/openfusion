@@ -499,14 +499,55 @@ def create_app(
 
             acquired = limiter.acquire()
 
+            cache = app.state.response_cache
+            cache_k = cache_key(body, cfg) if wants_fusion and cfg.response_cache.enabled else None
+
+            async def fire_usage(usage: dict[str, Any] | None) -> None:
+                cb = app.state.usage_callback
+                if cb is not None:
+                    with contextlib.suppress(Exception):
+                        await cb(request, usage)
+
+            async def on_complete(content: str, usage: dict[str, Any] | None) -> None:
+                if cache_k is not None:
+                    cache.put(cache_k, {"content": content, "usage": usage})
+                await fire_usage(usage)
+
             if wants_fusion and cfg.strategy == Strategy.PIPELINE:
+                cached_hit = cache.get(cache_k) if cache_k is not None else None
+                if cache_k is not None:
+                    METRICS.record_cache(hit=cached_hit is not None)
+                if cached_hit is not None:
+                    _record_request("pipeline", "success", started)
+                    await fire_usage(cached_hit.get("usage"))
+                    model_name = cfg.fusion_model_name
+                    if stream:
+                        cached = StreamingResponse(
+                            replay_cached_stream(
+                                cached_hit["content"], cached_hit.get("usage"), model_name
+                            ),
+                            media_type="text/event-stream",
+                            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+                        )
+                        return _attach_release(cached, limiter, acquired)
+                    payload = cached_response_dict(
+                        cached_hit["content"], cached_hit.get("usage"), model_name
+                    )
+                    return _attach_release(JSONResponse(content=payload), limiter, acquired)
+
                 if stream:
                     return _attach_release(
-                        await _pipeline_stream(request, body, cfg, client, started=started),
+                        await _pipeline_stream(
+                            request, body, cfg, client, started=started, on_complete=on_complete
+                        ),
                         limiter,
                         acquired,
                     )
                 payload = await buffer_pipeline(body, cfg, client)
+                content = (
+                    (payload.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+                )
+                await on_complete(content, payload.get("usage"))
                 _record_request("pipeline", "success", started)
                 return _attach_release(JSONResponse(content=payload), limiter, acquired)
 
@@ -529,20 +570,6 @@ def create_app(
                 if cfg.judge is None:
                     raise InvalidRequestError("Judge must be configured for judge aggregation")
                 policy.apply_token_limit(body, RequestPhase.JUDGE, reject_over_limit=True)
-
-            cache = app.state.response_cache
-            cache_k = cache_key(body, cfg) if cfg.response_cache.enabled else None
-
-            async def fire_usage(usage: dict[str, Any] | None) -> None:
-                cb = app.state.usage_callback
-                if cb is not None:
-                    with contextlib.suppress(Exception):
-                        await cb(request, usage)
-
-            async def on_complete(content: str, usage: dict[str, Any] | None) -> None:
-                if cache_k is not None:
-                    cache.put(cache_k, {"content": content, "usage": usage})
-                await fire_usage(usage)
 
             cached_hit = cache.get(cache_k) if cache_k is not None else None
             if cache_k is not None:
@@ -712,6 +739,7 @@ async def _pipeline_stream(
     client: UpstreamClient,
     *,
     started: float,
+    on_complete: Callable[[str, dict[str, Any] | None], Awaitable[None]] | None = None,
 ) -> StreamingResponse:
     def on_finish(outcome: str) -> None:
         _record_request("pipeline", outcome, started)
@@ -721,6 +749,8 @@ async def _pipeline_stream(
         lambda cancel_event: pipeline_and_stream(body, config, client, cancel_event=cancel_event),
         on_finish,
     )
+    if on_complete is not None:
+        lines = capture_stream(lines, on_complete)
     return StreamingResponse(
         lines,
         media_type="text/event-stream",
