@@ -7,10 +7,12 @@ import pytest
 
 from openfusion.config import (
     Aggregator,
+    DebateConfig,
     JudgeConfig,
     OpenFusionConfig,
     PanelMember,
     ResponseCacheConfig,
+    SelfFusionConfig,
     Strategy,
     TimeoutsConfig,
 )
@@ -71,6 +73,30 @@ def test_cache_key_differs_on_sampling_params() -> None:
     assert cache_key({**base, "temperature": 0.7}, cfg) == cache_key(
         {**base, "temperature": 0.7}, cfg
     )
+
+
+def test_cache_key_differs_on_self_fusion_and_debate_config() -> None:
+    """Regression: self-fusion sample count/spread and debate rounds change how many
+    upstream calls are made and what gets synthesized, so two configs that only
+    differ in these fields must not share a cache entry.
+    """
+    base = OpenFusionConfig(
+        panel=[PanelMember(base_url="u", api_key="k", model="m")],
+        judge=JudgeConfig(base_url="u", api_key="k", model="j"),
+    )
+    more_samples = base.model_copy(update={"self_fusion": SelfFusionConfig(n=5)})
+    wider_spread = base.model_copy(
+        update={"self_fusion": SelfFusionConfig(temperature_spread=[0.1, 0.9])}
+    )
+    no_seed_offset = base.model_copy(update={"self_fusion": SelfFusionConfig(seed_offset=False)})
+    more_rounds = base.model_copy(update={"debate": DebateConfig(rounds=2)})
+    body = {"messages": [{"role": "user", "content": "hi"}]}
+
+    assert cache_key(body, base) != cache_key(body, more_samples)
+    assert cache_key(body, base) != cache_key(body, wider_spread)
+    assert cache_key(body, base) != cache_key(body, no_seed_offset)
+    assert cache_key(body, base) != cache_key(body, more_rounds)
+    assert cache_key(body, base) == cache_key(body, base.model_copy(deep=True))
 
 
 def test_cache_key_differs_on_credentials() -> None:

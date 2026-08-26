@@ -32,6 +32,15 @@ def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
         "judge": config.judge.model if config.judge else None,
         "credentials": hashlib.sha256(credentials.encode("utf-8")).hexdigest(),
         "tools": [config.tools.web_search, config.tools.web_fetch],
+        # Self-fusion sample count/spread and debate round count change how many
+        # calls are made and what's synthesized; omitting them would serve a
+        # cached answer from a run with a different recipe.
+        "self_fusion": [
+            config.self_fusion.n,
+            config.self_fusion.temperature_spread,
+            config.self_fusion.seed_offset,
+        ],
+        "debate_rounds": config.debate.rounds,
         "max_tokens": body.get("max_tokens") or config.cost_controls.judge_max_tokens,
         # Sampling parameters affect the response; omitting them would serve a
         # cached answer from a run with different generation settings.

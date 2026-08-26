@@ -187,7 +187,7 @@ async def route_async(
     }
     text = await _call_classifier(request, classifier, client)
     if text is None:
-        return route(body, config)
+        return route(body, config, outcomes)
     upper = text.upper()
     if "SOLO" in upper and "FUSE" not in upper:
         return RouteDecision.SOLO
@@ -195,7 +195,7 @@ async def route_async(
         return RouteDecision.FUSE
     _log.warning("router: classifier response %r not recognized, falling back to heuristic", text)
     _record_fallback()
-    return route(body, config)
+    return route(body, config, outcomes)
 
 
 def _select_prompt(route_models: list[RouteModel]) -> str:
