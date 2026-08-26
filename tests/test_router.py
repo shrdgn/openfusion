@@ -18,6 +18,7 @@ from openfusion.config import (
     Tier,
     TimeoutsConfig,
 )
+from openfusion.outcomes import OutcomeStore
 from openfusion.router import (
     RouteDecision,
     _classify_route,
@@ -31,6 +32,15 @@ from openfusion.router import (
 from openfusion.server import _requires_pass_through_tools, create_app
 from openfusion.tools import WEB_FETCH_TYPE, WEB_SEARCH_TYPE
 from openfusion.upstream import UpstreamClient
+
+
+def _fuse_leaning_outcomes(tier: Tier) -> OutcomeStore:
+    """An OutcomeStore with enough history to nudge `tier` from SOLO to FUSE."""
+    outcomes = OutcomeStore()
+    for _ in range(10):
+        outcomes.record("fusion", tier, success=True)
+        outcomes.record("pass_through", tier, success=False)
+    return outcomes
 
 
 def _body(text: str) -> dict:
@@ -131,6 +141,39 @@ async def test_route_async_falls_back_to_heuristic_on_error(mock_router) -> None
     client = UpstreamClient()
     # Classifier errored, so the heuristic decides: a keyword prompt fuses.
     decision = await route_async(_body("compare these options"), _model_router(), client)
+    assert decision == RouteDecision.FUSE
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_classifier_error_still_consults_outcomes(mock_router) -> None:
+    """Regression: a classifier error must fall back to route() *with* outcomes.
+
+    route_async previously dropped the `outcomes` argument on this fallback
+    path, silently disabling the learning-loop nudge for every request where
+    the classifier errors — even though a plain heuristic call (route()
+    without a classifier) honors it fine.
+    """
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(500, json={"error": {"message": "down"}})
+    )
+    client = UpstreamClient()
+    outcomes = _fuse_leaning_outcomes(Tier.FAST)
+    # "hi" has no fuse keyword and is short: the heuristic alone says SOLO.
+    decision = await route_async(_body("hi"), _model_router(), client, outcomes)
+    assert decision == RouteDecision.FUSE
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_route_async_unrecognized_response_still_consults_outcomes(mock_router) -> None:
+    """Regression: an unrecognized classifier reply must also thread `outcomes` through."""
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "no idea"}}]})
+    )
+    client = UpstreamClient()
+    outcomes = _fuse_leaning_outcomes(Tier.FAST)
+    decision = await route_async(_body("hi"), _model_router(), client, outcomes)
     assert decision == RouteDecision.FUSE
     await client.aclose()
 
@@ -345,9 +388,7 @@ async def test_route_request_classifier_unrecognized_response_falls_back(mock_ro
 async def test_route_async_unrecognized_classifier_response_falls_back(mock_router) -> None:
     """route_async falls back to heuristic when classifier reply matches neither SOLO nor FUSE."""
     mock_router.post("https://mock.upstream/v1/chat/completions").mock(
-        return_value=httpx.Response(
-            200, json={"choices": [{"message": {"content": "no idea"}}]}
-        )
+        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "no idea"}}]})
     )
     client = UpstreamClient()
     # 'no idea' contains neither SOLO nor FUSE -> heuristic; keyword prompt fuses.

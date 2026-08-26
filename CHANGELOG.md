@@ -46,6 +46,19 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `router.route_async` (`router.mode: model`) no longer drops the `outcomes`
+  argument when it falls back to the heuristic — on a classifier error or an
+  unrecognized classifier reply, `router._call_classifier`'s two fallback call
+  sites now pass `outcomes` through to `route()` like the normal heuristic path
+  already did. Previously, any request where the classifier errored or replied
+  with neither `SOLO` nor `FUSE` silently bypassed the routing learning loop
+  (`openfusion.outcomes.OutcomeStore`) for that request instead of falling back
+  to the heuristic with the learned nudge still active.
+- `responsecache.cache_key` now includes `self_fusion.n`, `self_fusion.temperature_spread`,
+  `self_fusion.seed_offset`, and `debate.rounds`. Two configs that only differed in
+  self-fusion sample count/spread or debate round count previously produced the
+  same cache key and could serve each other's cached answer, even though they run
+  a different number of upstream calls and synthesize differently.
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
