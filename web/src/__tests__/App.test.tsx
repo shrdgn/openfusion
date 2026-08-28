@@ -222,6 +222,58 @@ describe("App", () => {
     vi.unstubAllGlobals();
   });
 
+  it("rejects a file over the 10 MB limit but still attaches the others in the same batch", async () => {
+    getConfig.mockResolvedValue(baseConfig());
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const tooBig = new File(["small content"], "huge.txt", { type: "text/plain" });
+    Object.defineProperty(tooBig, "size", { value: 10 * 1024 * 1024 + 1 });
+    const ok = new File(["fits fine"], "ok.txt", { type: "text/plain" });
+    Object.defineProperty(fileInput, "files", { value: [tooBig, ok], configurable: true });
+    fireEvent.change(fileInput);
+
+    expect(
+      await screen.findByText('Error: file "huge.txt" is too large (max 10 MB)'),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("huge.txt")).not.toBeInTheDocument();
+    expect(await screen.findByText("ok.txt")).toBeInTheDocument();
+  });
+
+  it("attaches an image file as an image_url content block", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation((_p: unknown, _t: unknown, h: StreamHandlers) => {
+      h.onContent?.("done");
+      return Promise.resolve();
+    });
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const image = new File(["fake-png-bytes"], "photo.png", { type: "image/png" });
+    Object.defineProperty(fileInput, "files", { value: [image], configurable: true });
+    fireEvent.change(fileInput);
+
+    expect(await screen.findByText("photo.png")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "describe this");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+
+    await waitFor(() => expect(streamFusion).toHaveBeenCalledTimes(1));
+    const [payload] = streamFusion.mock.calls[0];
+    const lastMsg = payload.messages[payload.messages.length - 1];
+    const blocks = lastMsg.content as Array<{
+      type: string;
+      image_url?: { url: string };
+    }>;
+    expect(blocks[1].type).toBe("image_url");
+    expect(blocks[1].image_url?.url).toMatch(/^data:/);
+  });
+
   it("removes an attached file when its × button is clicked", async () => {
     const user = userEvent.setup();
     getConfig.mockResolvedValue(baseConfig());
