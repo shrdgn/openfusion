@@ -111,6 +111,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judge's own usage is now included alongside the panel's.
 
 ### Changed
+- `CONTRIBUTING.md`'s pre-PR checklist now matches what CI actually runs: the
+  exact `mypy` flags CI uses (previously undocumented), coverage-report flags
+  for `pytest`, and `npm run test:coverage` + `npm run typecheck` in place of
+  the coverage- and type-blind `npm test`. Also drops a stale "280+ tests"
+  count in favor of pointing at the coverage gates CI actually enforces (80%
+  backend, 90%/70%/85%/90% frontend), which won't go stale as the suite grows.
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
   building it, so a type error in `web/src/**` fails the build instead of
   silently passing through Vite's esbuild transform (which strips types
