@@ -13,6 +13,7 @@ from openfusion.config import (
     ResponseCacheConfig,
     Strategy,
     TimeoutsConfig,
+    ToolsConfig,
 )
 from openfusion.responsecache import ResponseCache, cache_key
 from openfusion.server import create_app
@@ -109,6 +110,38 @@ def test_cache_key_differs_on_output_params() -> None:
     )
     # Same output params → same key.
     assert cache_key({**base, "stop": ["END"]}, cfg) == cache_key({**base, "stop": ["END"]}, cfg)
+
+
+def test_cache_key_differs_on_tools_config() -> None:
+    """A cache entry from one tools recipe must never be served for another.
+
+    Regression test for the cache key previously including only
+    `web_search`/`web_fetch` and omitting `max_results`, `engine`,
+    `excluded_domains`, and `apply_to_judge` — so e.g. adding a domain to
+    `excluded_domains` (used "to prevent benchmark contamination", per
+    `ToolsConfig`'s docstring) would silently keep serving answers cached
+    before the domain was blocked.
+    """
+
+    def cfg_with(**tools_kwargs: object) -> OpenFusionConfig:
+        return OpenFusionConfig(
+            panel=[PanelMember(base_url="u", api_key="k", model="m")],
+            judge=JudgeConfig(base_url="u", api_key="k", model="j"),
+            tools=ToolsConfig(**tools_kwargs),
+        )
+
+    base = {"messages": [{"role": "user", "content": "hi"}]}
+    default_cfg = cfg_with()
+    assert cache_key(base, default_cfg) != cache_key(base, cfg_with(max_results=10))
+    assert cache_key(base, default_cfg) != cache_key(base, cfg_with(engine="exa"))
+    assert cache_key(base, default_cfg) != cache_key(
+        base, cfg_with(excluded_domains=["example.com"])
+    )
+    assert cache_key(base, default_cfg) != cache_key(base, cfg_with(apply_to_judge=True))
+    # Same tools recipe → same key, order of excluded_domains doesn't matter.
+    assert cache_key(base, cfg_with(excluded_domains=["a.com", "b.com"])) == cache_key(
+        base, cfg_with(excluded_domains=["b.com", "a.com"])
+    )
 
 
 @pytest.mark.asyncio

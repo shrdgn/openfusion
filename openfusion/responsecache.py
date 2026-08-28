@@ -31,7 +31,14 @@ def cache_key(body: dict[str, Any], config: OpenFusionConfig) -> str:
         "panel": [member.model for member in config.panel],
         "judge": config.judge.model if config.judge else None,
         "credentials": hashlib.sha256(credentials.encode("utf-8")).hexdigest(),
-        "tools": [config.tools.web_search, config.tools.web_fetch],
+        "tools": [
+            config.tools.web_search,
+            config.tools.web_fetch,
+            config.tools.max_results,
+            config.tools.engine,
+            sorted(config.tools.excluded_domains),
+            config.tools.apply_to_judge,
+        ],
         "max_tokens": body.get("max_tokens") or config.cost_controls.judge_max_tokens,
         # Sampling parameters affect the response; omitting them would serve a
         # cached answer from a run with different generation settings.
