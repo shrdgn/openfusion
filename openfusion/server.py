@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import hmac
 import json
+import logging
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator, Awaitable, Callable
@@ -67,6 +68,8 @@ from openfusion.stream import (
 )
 from openfusion.tools import tools_are_server_executable
 from openfusion.upstream import UpstreamClient
+
+_log = logging.getLogger(__name__)
 
 FUSION_MODEL = "openfusion"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -592,11 +595,12 @@ def create_app(
             limiter.release(acquired)
             _record_request(route_label, "error", started)
             return _error_response(InvalidRequestError(f"Invalid JSON: {exc}"))
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             limiter.release(acquired)
             _record_request(route_label, "error", started)
             _record_outcome(route_label, "error", body)
-            return _error_response(UpstreamError(str(exc)))
+            _log.exception("chat_completions: unhandled exception")
+            return _error_response(UpstreamError("Internal error while processing the request"))
 
     return app
 

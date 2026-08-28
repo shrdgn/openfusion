@@ -184,4 +184,6 @@ async def test_unexpected_exception_returns_upstream_error(
     assert response.status_code == 502
     payload = response.json()
     assert payload["error"]["type"] == "upstream_error"
-    assert "unexpected failure" in payload["error"]["message"]
+    # The raw exception text must not leak to the client; see test_integration.py
+    # for coverage that it's still recorded server-side.
+    assert "unexpected failure" not in payload["error"]["message"]
