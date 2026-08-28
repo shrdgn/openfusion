@@ -99,6 +99,46 @@ async def test_pick_best_returns_ranking_call_usage(mock_router) -> None:
 
 
 @pytest.mark.asyncio
+async def test_pick_best_strips_response_format_and_stop(mock_router) -> None:
+    """response_format/stop are for the *visible* judge output (synthesize.py's judge
+    call). This internal ranking call's own text is never returned to the client, so
+    those fields must not leak into it — a client-set response_format could otherwise
+    break _parse_choice or make the upstream reject the classifier call outright.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "response_format" not in payload
+        assert "stop" not in payload
+        return httpx.Response(
+            200, json={"choices": [{"message": {"role": "assistant", "content": "2"}}]}
+        )
+
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(side_effect=handler)
+    panel = PanelResult(
+        responses=[
+            MemberResponse(label="a", content="answer one", model="m"),
+            MemberResponse(label="b", content="answer two", model="m"),
+        ]
+    )
+    client = UpstreamClient()
+
+    content, _meta = await pick_best(
+        {
+            "messages": [{"role": "user", "content": "q"}],
+            "response_format": {"type": "json_object"},
+            "stop": ["\n"],
+        },
+        panel,
+        _config(),
+        client,
+    )
+
+    assert content == "answer two"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_pick_best_single_response_skips_judge(mock_router) -> None:
     route = mock_router.post("https://mock.upstream/v1/chat/completions").mock(
         return_value=httpx.Response(200, json={"choices": []})
