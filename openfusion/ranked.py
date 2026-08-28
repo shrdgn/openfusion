@@ -90,6 +90,11 @@ async def pick_best(
     body["messages"] = build_ranking_messages(messages, panel)
     body.pop("model", None)
     strip_tool_fields(body)
+    # Unlike synthesize.py's judge call, this call's own text is never returned to
+    # the client — only the chosen panel response is. response_format/stop apply to
+    # the *visible* output, so they must not leak into this internal classifier call.
+    body.pop("response_format", None)
+    body.pop("stop", None)
     body["max_tokens"] = 8
     body["stream"] = False
 
