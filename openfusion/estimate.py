@@ -38,7 +38,11 @@ def build_estimate(body: dict[str, Any], config: OpenFusionConfig, prices: dict)
             {"model": member.model, "phase": "panel", "input": input_tokens, "output": panel_cap}
         )
 
-    if config.aggregator in (Aggregator.JUDGE, Aggregator.RANKED) and config.judge is not None:
+    # ranked.pick_best skips the ranking call entirely for a single-member panel and
+    # returns that response verbatim (see ranked.py), so estimating a judge call here
+    # for that case would overstate calls/tokens/cost with a call that never runs.
+    ranked_needs_judge = config.aggregator == Aggregator.RANKED and len(calls) > 1
+    if (config.aggregator == Aggregator.JUDGE or ranked_needs_judge) and config.judge is not None:
         # The judge sees the original prompt plus every panel answer.
         judge_input = input_tokens + panel_cap * len(calls)
         judge_output = 8 if config.aggregator == Aggregator.RANKED else judge_cap

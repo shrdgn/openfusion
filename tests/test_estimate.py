@@ -108,6 +108,39 @@ def test_build_estimate_counts_calls_and_prices() -> None:
     assert est["cost_usd"] == 0.0  # all priced (at zero)
 
 
+def test_build_estimate_ranked_single_member_panel_skips_judge_call() -> None:
+    """ranked.pick_best skips the ranking call entirely for a single-member panel and
+    returns that response verbatim, so the estimate must not include a phantom judge
+    call that will never run — it would otherwise overstate calls/tokens/cost.
+    """
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        aggregator=Aggregator.RANKED,
+        panel=[PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1")],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
+        cost_controls=CostControlsConfig(panel_max_tokens=100, judge_max_tokens=200),
+    )
+    est = build_estimate({"messages": [{"role": "user", "content": "hi"}]}, config, prices={})
+    assert est["calls"] == 1
+    assert est["models"] == ["m1"]
+
+
+def test_build_estimate_ranked_multi_member_panel_includes_judge_call() -> None:
+    config = OpenFusionConfig(
+        strategy=Strategy.PANEL,
+        aggregator=Aggregator.RANKED,
+        panel=[
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m1"),
+            PanelMember(base_url="https://mock.upstream/v1", api_key="k", model="m2"),
+        ],
+        judge=JudgeConfig(base_url="https://mock.upstream/v1", api_key="k", model="j"),
+        cost_controls=CostControlsConfig(panel_max_tokens=100, judge_max_tokens=200),
+    )
+    est = build_estimate({"messages": [{"role": "user", "content": "hi"}]}, config, prices={})
+    assert est["calls"] == 3  # 2 panel + judge
+    assert est["models"] == ["m1", "m2", "j"]
+
+
 def test_build_estimate_cost_none_when_unpriced() -> None:
     est = build_estimate(
         {"messages": [{"role": "user", "content": "hi"}]}, _config(), prices={}
