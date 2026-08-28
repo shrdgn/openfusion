@@ -193,6 +193,29 @@ def test_expose_panel_override() -> None:
     assert cfg.expose_panel is True
 
 
+def test_tools_override_ignores_non_bool_web_search() -> None:
+    """bool("false") is True in Python — a malformed client sending the JSON string
+    "false" must not silently *enable* web search instead of leaving it alone."""
+    base = _base()
+    assert base.tools.web_search is False
+    cfg = apply_overrides(base, {"tools": {"web_search": "false"}})
+    assert cfg.tools.web_search is False
+
+
+def test_tools_override_ignores_non_bool_web_fetch() -> None:
+    base = _base()
+    base.tools.web_fetch = True
+    cfg = apply_overrides(base, {"tools": {"web_fetch": "false"}})
+    assert cfg.tools.web_fetch is True
+
+
+def test_expose_panel_override_ignores_non_bool() -> None:
+    base = _base()
+    assert base.expose_panel is False
+    cfg = apply_overrides(base, {"expose_panel": "false"})
+    assert cfg.expose_panel is False
+
+
 def test_is_missing_api_key_judge_only() -> None:
     """No panel: an empty-key judge alone should still be reported as missing."""
     missing = OpenFusionConfig(judge=JudgeConfig(base_url="https://j/v1", api_key="", model="j"))

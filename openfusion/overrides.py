@@ -85,13 +85,13 @@ def apply_overrides(config: OpenFusionConfig, override: dict[str, Any]) -> OpenF
 
     tools = override.get("tools")
     if isinstance(tools, dict):
-        if "web_search" in tools:
-            new.tools.web_search = bool(tools["web_search"])
-        if "web_fetch" in tools:
-            new.tools.web_fetch = bool(tools["web_fetch"])
+        if isinstance(tools.get("web_search"), bool):
+            new.tools.web_search = tools["web_search"]
+        if isinstance(tools.get("web_fetch"), bool):
+            new.tools.web_fetch = tools["web_fetch"]
 
-    if "expose_panel" in override:
-        new.expose_panel = bool(override["expose_panel"])
+    if isinstance(override.get("expose_panel"), bool):
+        new.expose_panel = override["expose_panel"]
 
     max_tokens = override.get("max_tokens")
     if isinstance(max_tokens, int) and not isinstance(max_tokens, bool) and max_tokens > 0:
