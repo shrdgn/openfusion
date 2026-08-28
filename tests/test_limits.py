@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import time
+from collections.abc import AsyncIterator
 
 import httpx
 import pytest
+from fastapi.responses import StreamingResponse
 
 from openfusion.config import GatewayAuthConfig, LimitsConfig, OpenFusionConfig
 from openfusion.errors import OverloadedError, RateLimitError
 from openfusion.limits import RequestLimiter
-from openfusion.server import create_app
+from openfusion.server import _attach_release, create_app
 
 
 def test_rate_limit_blocks_after_budget() -> None:
@@ -332,3 +334,34 @@ async def test_server_releases_concurrency_slot_after_response(
 
     assert first.status_code == 200
     assert second.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_streaming_slot_released_even_if_response_background_never_runs() -> None:
+    """A disconnected client can make Starlette skip response.background entirely --
+    it raises writing the stream's final empty chunk to an already-closed socket
+    *before* reaching the background-task call (see StreamingResponse.__call__). The
+    concurrency slot must still come back, from the body iterator's own `finally`
+    rather than from `response.background`, or `limits.max_in_flight` leaks a slot per
+    disconnect until the server 503s every request.
+    """
+    limiter = RequestLimiter(LimitsConfig(max_in_flight=1))
+    acquired = limiter.acquire()
+    assert acquired is True
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"chunk-1"
+        yield b"chunk-2"
+
+    response = StreamingResponse(body())
+    _attach_release(response, limiter, acquired)
+
+    # Drain the body iterator the way Starlette's stream_response() does, but never
+    # invoke response.background -- this simulates the disconnect path where
+    # Starlette's own send() raises before background ever runs.
+    chunks = [chunk async for chunk in response.body_iterator]
+
+    assert chunks == [b"chunk-1", b"chunk-2"]
+    assert limiter._in_flight == 0
+    # A slot is available again for the next request.
+    assert limiter.acquire() is True
