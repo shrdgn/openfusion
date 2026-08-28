@@ -627,6 +627,25 @@ def extract_response_usage(payload: dict[str, Any]) -> dict[str, float] | None:
     return result or None
 
 
+def extract_delta_content(chunk: dict[str, Any]) -> str:
+    """Pull the streamed text delta out of an OpenAI-style chat completion chunk."""
+    choices = chunk.get("choices") or []
+    if not choices:
+        return ""
+    delta = choices[0].get("delta") or {}
+    content = delta.get("content")
+    return content if isinstance(content, str) else ""
+
+
+def extract_finish_reason(chunk: dict[str, Any]) -> str | None:
+    """Pull the finish_reason out of an OpenAI-style chat completion chunk, if present."""
+    choices = chunk.get("choices") or []
+    if not choices:
+        return None
+    reason = choices[0].get("finish_reason")
+    return reason if isinstance(reason, str) else None
+
+
 def member_from_dict(
     base_url: str,
     api_key: str,

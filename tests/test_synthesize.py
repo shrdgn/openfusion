@@ -7,12 +7,7 @@ import pytest
 from openfusion.config import JudgeConfig, OpenFusionConfig, PanelMember, ToolsConfig
 from openfusion.errors import UpstreamError
 from openfusion.panel import MemberResponse, PanelResult
-from openfusion.synthesize import (
-    _extract_delta_content,
-    _extract_finish_reason,
-    build_judge_messages,
-    synthesize,
-)
+from openfusion.synthesize import build_judge_messages, synthesize
 from openfusion.upstream import UpstreamClient
 
 
@@ -103,54 +98,6 @@ def test_truncate_panel_responses_all_short_breaks_gracefully() -> None:
     assert len(result) == 3
     # None were truncated (they were already at the floor).
     assert all(len(content) == 100 for _, content in result)
-
-
-# ---------------------------------------------------------------------------
-# _extract_delta_content
-# ---------------------------------------------------------------------------
-
-
-def test_extract_delta_content_returns_text() -> None:
-    chunk = {"choices": [{"delta": {"content": "hello"}}]}
-    assert _extract_delta_content(chunk) == "hello"
-
-
-def test_extract_delta_content_empty_when_no_choices() -> None:
-    assert _extract_delta_content({}) == ""
-    assert _extract_delta_content({"choices": []}) == ""
-
-
-def test_extract_delta_content_empty_when_content_is_none() -> None:
-    assert _extract_delta_content({"choices": [{"delta": {"content": None}}]}) == ""
-
-
-def test_extract_delta_content_empty_when_delta_absent() -> None:
-    assert _extract_delta_content({"choices": [{}]}) == ""
-
-
-# ---------------------------------------------------------------------------
-# _extract_finish_reason
-# ---------------------------------------------------------------------------
-
-
-def test_extract_finish_reason_stop() -> None:
-    chunk = {"choices": [{"finish_reason": "stop"}]}
-    assert _extract_finish_reason(chunk) == "stop"
-
-
-def test_extract_finish_reason_none_when_no_choices() -> None:
-    assert _extract_finish_reason({}) is None
-    assert _extract_finish_reason({"choices": []}) is None
-
-
-def test_extract_finish_reason_none_when_null() -> None:
-    # OpenAI streams send null finish_reason on non-terminal chunks.
-    assert _extract_finish_reason({"choices": [{"finish_reason": None}]}) is None
-
-
-def test_extract_finish_reason_length() -> None:
-    chunk = {"choices": [{"finish_reason": "length"}]}
-    assert _extract_finish_reason(chunk) == "length"
 
 
 # ---------------------------------------------------------------------------

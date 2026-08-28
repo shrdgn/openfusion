@@ -10,7 +10,12 @@ from openfusion.config import OpenFusionConfig, PanelMember, PipelineStepUse
 from openfusion.errors import InvalidRequestError, UpstreamError
 from openfusion.panel import gather_panel
 from openfusion.synthesize import synthesize
-from openfusion.upstream import UpstreamClient, extract_response_usage
+from openfusion.upstream import (
+    UpstreamClient,
+    extract_delta_content,
+    extract_finish_reason,
+    extract_response_usage,
+)
 
 
 def _inject_step_outputs(
@@ -74,12 +79,9 @@ async def _collect_stream(
     parts: list[str] = []
     usage: dict[str, Any] | None = None
     async for chunk in stream:
-        choices = chunk.get("choices") or []
-        if choices:
-            delta = choices[0].get("delta") or {}
-            content = delta.get("content")
-            if isinstance(content, str):
-                parts.append(content)
+        content = extract_delta_content(chunk)
+        if content:
+            parts.append(content)
         u = extract_response_usage(chunk)
         if u:
             usage = u
@@ -186,12 +188,8 @@ async def run_pipeline(
 
             if is_last:
                 async for chunk in stream:
-                    choices = chunk.get("choices") or []
-                    delta_text = ""
-                    finish_reason = None
-                    if choices:
-                        delta_text = (choices[0].get("delta") or {}).get("content") or ""
-                        finish_reason = choices[0].get("finish_reason")
+                    delta_text = extract_delta_content(chunk)
+                    finish_reason = extract_finish_reason(chunk)
                     usage = extract_response_usage(chunk)
                     if usage:
                         usage = _merge_usage(accumulated_usage, usage)
