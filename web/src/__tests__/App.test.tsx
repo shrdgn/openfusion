@@ -644,4 +644,85 @@ describe("App", () => {
     await user.click(screen.getByTitle("Toggle history"));
     expect(screen.getByText("History")).toBeInTheDocument();
   });
+
+  it("deletes the active conversation and falls back to the next one, then clears state once none remain", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("answer one");
+      },
+    );
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "question one");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("answer one");
+
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("answer two");
+      },
+    );
+    await user.click(screen.getByTitle("New conversation"));
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "question two");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("answer two");
+
+    // Sidebar entries are newest-first, so index 0 is the active "question two"
+    // conversation; deleting it should fall back to the remaining one instead
+    // of leaving a dangling activeId pointing at nothing.
+    let deleteButtons = screen.getAllByTitle("Delete");
+    expect(deleteButtons).toHaveLength(2);
+    await user.click(deleteButtons[0]);
+
+    expect(await screen.findByText("answer one")).toBeInTheDocument();
+    expect(screen.queryByText("answer two")).not.toBeInTheDocument();
+
+    // Deleting the last remaining conversation clears the active view entirely.
+    deleteButtons = screen.getAllByTitle("Delete");
+    expect(deleteButtons).toHaveLength(1);
+    await user.click(deleteButtons[0]);
+
+    expect(screen.getByText("No conversations yet")).toBeInTheDocument();
+    expect(screen.queryByText("answer one")).not.toBeInTheDocument();
+  });
+
+  it("retries with a trimmed payload when localStorage.setItem throws (e.g. quota exceeded), without crashing", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+    streamFusion.mockImplementation(
+      async (_payload: unknown, _token: unknown, handlers: StreamHandlers) => {
+        handlers.onContent?.("resilient answer");
+      },
+    );
+
+    const realSetItem = Storage.prototype.setItem.bind(localStorage);
+    let conversationsWrites = 0;
+    const setItemSpy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(function (key: string, value: string) {
+        if (key === "openfusion_conversations_v1") {
+          conversationsWrites++;
+          if (conversationsWrites === 1) {
+            throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+          }
+        }
+        realSetItem(key, value);
+      });
+
+    render(<App />);
+    await screen.findByDisplayValue("openai/gpt-4o");
+    await user.type(screen.getByPlaceholderText("Ask anything…"), "quota test");
+    await user.click(screen.getByRole("button", { name: /Fuse/ }));
+    await screen.findByText("resilient answer");
+
+    // The first write threw (simulated quota exceeded); saveConversations
+    // caught it and retried with a trimmed payload instead of crashing.
+    expect(conversationsWrites).toBeGreaterThan(1);
+    expect(() => JSON.parse(localStorage.getItem("openfusion_conversations_v1")!)).not.toThrow();
+
+    setItemSpy.mockRestore();
+  });
 });
