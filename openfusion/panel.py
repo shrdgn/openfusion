@@ -115,6 +115,7 @@ async def _call_member(
         body,
         RequestPhase.PANEL,
         reject_over_limit=False,
+        already_isolated=True,
     )
     for key in ("temperature", "seed"):
         if key in overrides:
