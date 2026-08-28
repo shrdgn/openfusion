@@ -73,7 +73,6 @@ fail_under = 80
 [tool.mypy]
 python_version = "3.11"
 ignore_missing_imports = true
-exclude = ["openfusion/cli\\.py"]
 
 [tool.ruff]
 target-version = "py311"

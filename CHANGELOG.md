@@ -111,6 +111,14 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   judge's own usage is now included alongside the panel's.
 
 ### Changed
+- CI's `mypy` step now type-checks `openfusion/cli.py`, previously the only excluded module in
+  the whole `openfusion/` package (`pyproject.toml`'s `[tool.mypy]` and the CI workflow both
+  carried the exclude). Fixed the two real issues it surfaced: `console: object | None`
+  defeated attribute checking on every `console.print(...)`/`console.status(...)` call in
+  `_chat_turn`'s Rich-rendering branch (now typed `Console | None` via a `TYPE_CHECKING`-only
+  import, so the lazy runtime import of `rich` is unaffected), and a `content` variable was
+  redefined with a conflicting type between the plain-text and Rich-rendering branches of the
+  same function (renamed to `answer` in the latter).
 - CI now runs `tsc --noEmit` (`npm run typecheck`) on the playground before
   building it, so a type error in `web/src/**` fails the build instead of
   silently passing through Vite's esbuild transform (which strips types
