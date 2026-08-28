@@ -463,6 +463,8 @@ def create_app(
             messages = body.get("messages")
             if not isinstance(messages, list) or not messages:
                 raise InvalidRequestError("messages is required and must be a non-empty array")
+            if not all(isinstance(message, dict) for message in messages):
+                raise InvalidRequestError("each item in messages must be an object")
 
             override = body.pop("openfusion", None)
             if override is not None:
