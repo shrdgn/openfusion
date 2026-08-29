@@ -201,6 +201,50 @@ async def test_server_rate_limit_still_per_key_when_gateway_allowlist_set(
 
 
 @pytest.mark.asyncio
+async def test_server_rate_limit_applies_to_estimate_route(
+    test_config: OpenFusionConfig,
+) -> None:
+    """Every route reachable without a configured gateway.api_keys allowlist --
+    not just /v1/chat/completions -- must respect rate_limit_per_minute.
+    /v1/estimate is the most exposed: it's open by default and does real work
+    (a pricing fetch on a cache miss), so it must not let a client bypass the
+    operator's configured budget."""
+    test_config.limits = LimitsConfig(rate_limit_per_minute=1)
+    app = create_app(test_config)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+        payload = {"model": "pass-model", "messages": [{"role": "user", "content": "hi"}]}
+        first = await http_client.post("/v1/estimate", json=payload)
+        second = await http_client.post("/v1/estimate", json=payload)
+    await app.state.upstream_client.aclose()
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert second.json()["error"]["code"] == "rate_limit_exceeded"
+
+
+@pytest.mark.asyncio
+async def test_server_rate_limit_applies_to_config_and_models_routes(
+    test_config: OpenFusionConfig,
+) -> None:
+    """/v1/config, /v1/models, /v1/routing/outcomes, and /v1/runtime/api-key
+    previously never called the limiter at all, so they shared no budget with
+    /v1/chat/completions -- an attacker could hammer them without limit."""
+    test_config.limits = LimitsConfig(rate_limit_per_minute=1)
+    for route in ("/v1/config", "/v1/models", "/v1/routing/outcomes"):
+        app = create_app(test_config)
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as http_client:
+            first = await http_client.get(route)
+            second = await http_client.get(route)
+        await app.state.upstream_client.aclose()
+        assert first.status_code == 200, route
+        assert second.status_code == 429, route
+        assert second.json()["error"]["code"] == "rate_limit_exceeded"
+
+
+@pytest.mark.asyncio
 async def test_server_rejects_oversized_body_with_413(
     test_config: OpenFusionConfig, mock_router
 ) -> None:

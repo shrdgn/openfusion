@@ -46,6 +46,13 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `RequestLimiter.check_rate` (the per-key `rate_limit_per_minute` budget) is now enforced on
+  every route, not just `POST /v1/chat/completions`. `GET /v1/config`, `GET /v1/models`,
+  `GET /v1/routing/outcomes`, `POST /v1/estimate`, and `POST /v1/runtime/api-key` previously
+  never called the limiter, so on the zero-config default (no `gateway.api_keys`, where these
+  routes are reachable without auth) a client could hit them without limit regardless of the
+  operator's configured budget — `/v1/estimate` in particular does real work per call (a pricing
+  fetch on a cache miss).
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
