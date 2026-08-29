@@ -90,6 +90,32 @@ async def test_inflight_fetch_returns_stale_cache_without_new_call(mock_router) 
     assert call_count == 0  # no HTTP call made; stale cache returned as-is
 
 
+async def test_cache_evicts_least_recently_used_entry_past_the_cap(mock_router) -> None:
+    """_cache must stay bounded -- a config_resolver-based multi-tenant deployment
+    can see many distinct base_urls (one per tenant), and without eviction the
+    module-global cache would grow for the life of the process."""
+    for i in range(4):
+        mock_router.get(f"https://host{i}/v1/models").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
+    pricing._CACHE_MAX_KEYS = 3
+    try:
+        for i in range(3):
+            await pricing.get_prices(f"https://host{i}/v1")
+        # Re-fetch host0 (a cache hit) so it's the most-recently-used, leaving
+        # host1 as the least-recently-used entry once a 4th URL is added.
+        await pricing.get_prices("https://host0/v1")
+        await pricing.get_prices("https://host3/v1")
+
+        assert "https://host1/v1" not in pricing._cache  # evicted: least recently used
+        assert "https://host0/v1" in pricing._cache
+        assert "https://host2/v1" in pricing._cache
+        assert "https://host3/v1" in pricing._cache
+        assert len(pricing._cache) == 3
+    finally:
+        pricing._CACHE_MAX_KEYS = 1024
+
+
 async def test_inflight_fetch_returns_empty_when_no_cache(mock_router) -> None:
     """A caller arriving while another fetch is in flight with no prior cache gets {}."""
     call_count = 0
