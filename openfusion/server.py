@@ -342,6 +342,7 @@ def create_app(
     ) -> dict[str, Any]:
         """Return the current routing outcome EMA snapshot (for observability)."""
         _validate_gateway_auth(cfg, authorization)
+        app.state.limiter.check_rate(_rate_limit_key(cfg, authorization))
         return {"outcomes": OUTCOMES.snapshot()}
 
     @app.get("/v1/config")
@@ -350,6 +351,7 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _validate_gateway_auth(cfg, authorization)
+        app.state.limiter.check_rate(_rate_limit_key(cfg, authorization))
         runtime_key = app.state.runtime_api_keys.get(_client_key(authorization))
         return _active_config_payload(cfg, runtime_key)
 
@@ -360,6 +362,7 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _validate_gateway_auth(cfg, authorization)
+        app.state.limiter.check_rate(_rate_limit_key(cfg, authorization))
         try:
             body = await request.json()
         except json.JSONDecodeError as exc:
@@ -380,6 +383,7 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _validate_gateway_auth(cfg, authorization)
+        app.state.limiter.check_rate(_rate_limit_key(cfg, authorization))
         if not cfg.allow_ui_api_key:
             raise OpenFusionError(
                 "Setting the API key from the UI is disabled on this server",
@@ -407,6 +411,7 @@ def create_app(
         authorization: str | None = Header(default=None),
     ) -> dict[str, Any]:
         _validate_gateway_auth(cfg, authorization)
+        app.state.limiter.check_rate(_rate_limit_key(cfg, authorization))
         models = [
             {
                 "id": cfg.fusion_model_name,
