@@ -194,15 +194,23 @@ export async function streamFusion(
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buffer.indexOf("\n\n")) !== -1) {
-      flushBlock(buffer.slice(0, idx), h);
-      buffer = buffer.slice(idx + 2);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n\n")) !== -1) {
+        flushBlock(buffer.slice(0, idx), h);
+        buffer = buffer.slice(idx + 2);
+      }
     }
+  } catch (err) {
+    // A mid-stream network drop rejects reader.read() after the initial
+    // fetch() already succeeded; without this the caller's unwrapped
+    // `await streamFusion(...)` would throw past its onError/setBusy cleanup.
+    h.onError?.(errorMessage(err));
+    return;
   }
   if (buffer.trim()) flushBlock(buffer, h);
 }

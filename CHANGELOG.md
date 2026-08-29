@@ -46,6 +46,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- The playground no longer gets stuck "busy" forever when an SSE stream drops mid-response
+  (proxy timeout, server restart, a flaky connection). `streamFusion` (`web/src/lib/api.ts`) now
+  catches a failing `reader.read()` and reports it via `onError`, matching how it already handles
+  the initial `fetch()` failing; previously the rejection propagated past `App.tsx`'s unwrapped
+  `await streamFusion(...)`, skipping `setBusy(false)` and every other cleanup after it, recoverable
+  only by reloading the page.
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
