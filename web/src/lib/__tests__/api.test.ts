@@ -21,6 +21,23 @@ function streamResponse(chunks: string[], init: { ok?: boolean; status?: number 
   return new Response(body, { status: init.status ?? 200 });
 }
 
+/** A body that delivers one chunk, then fails the next read() (a mid-stream network drop). */
+function streamThatDropsMidway(chunk: string, error: Error): Response {
+  const encoder = new TextEncoder();
+  let delivered = false;
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (!delivered) {
+        delivered = true;
+        controller.enqueue(encoder.encode(chunk));
+        return;
+      }
+      controller.error(error);
+    },
+  });
+  return new Response(body, { status: 200 });
+}
+
 function handlers(): StreamHandlers & { events: unknown[] } {
   const events: unknown[] = [];
   return {
@@ -209,6 +226,26 @@ describe("streamFusion", () => {
     const h = handlers();
     await streamFusion(PAYLOAD, undefined, h);
     expect(h.events).toEqual([["content", "tail"]]);
+  });
+
+  it("calls onError instead of throwing when the stream read fails mid-response", async () => {
+    // A network drop after headers arrive rejects reader.read(), past the
+    // initial fetch() try/catch. streamFusion must catch it and report via
+    // onError rather than let the rejection propagate to the caller.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        streamThatDropsMidway(
+          'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n',
+          new TypeError("network drop")
+        )
+      )
+    );
+    const h = handlers();
+    await expect(streamFusion(PAYLOAD, undefined, h)).resolves.toBeUndefined();
+    expect(h.events[0]).toEqual(["content", "partial"]);
+    const last = h.events[h.events.length - 1] as [string, string];
+    expect(last[0]).toBe("error");
   });
 
   it("sends an Authorization header only when a token is provided", async () => {
