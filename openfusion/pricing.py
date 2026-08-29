@@ -8,11 +8,19 @@ without a dollar figure when pricing is unavailable.
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 
 import httpx
 
 _TTL_SECONDS = 3600.0
-_cache: dict[str, tuple[float, dict[str, dict[str, float]]]] = {}
+# Hard cap on distinct base_urls tracked at once. Without this, a
+# config_resolver-based multi-tenant deployment (see docs/EMBEDDING.md) where
+# each tenant's resolved config can carry a distinct panel[0].base_url would
+# grow _cache without bound for the life of the process. Mirrors the LRU
+# eviction already used for ResponseCache, RequestLimiter's rate-limit window,
+# and server.py's runtime_api_keys store.
+_CACHE_MAX_KEYS = 1024
+_cache: OrderedDict[str, tuple[float, dict[str, dict[str, float]]]] = OrderedDict()
 # URLs whose pricing fetch is currently in-flight; prevents redundant concurrent calls.
 _inflight: set[str] = set()
 
@@ -44,6 +52,7 @@ async def get_prices(base_url: str) -> dict[str, dict[str, float]]:
     now = time.monotonic()
     cached = _cache.get(base_url)
     if cached is not None and now - cached[0] < _TTL_SECONDS:
+        _cache.move_to_end(base_url)
         return cached[1]
     # If a concurrent coroutine is already fetching the same URL, return whatever
     # is in the cache (possibly stale) rather than firing a duplicate HTTP call.
@@ -57,4 +66,7 @@ async def get_prices(base_url: str) -> dict[str, dict[str, float]]:
     finally:
         _inflight.discard(base_url)
     _cache[base_url] = (now, prices)
+    _cache.move_to_end(base_url)
+    while len(_cache) > _CACHE_MAX_KEYS:
+        _cache.popitem(last=False)
     return prices

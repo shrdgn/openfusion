@@ -46,6 +46,12 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `pricing.py`'s per-`base_url` price cache is now bounded and LRU-evicted (`_CACHE_MAX_KEYS`),
+  matching the eviction already used for `ResponseCache`, `RequestLimiter`'s rate-limit window, and
+  `server.py`'s `runtime_api_keys` store. Previously it was a plain unbounded `dict`, so a
+  `config_resolver`-based multi-tenant deployment (see `docs/EMBEDDING.md`) where each tenant's
+  resolved config carries a distinct `panel[0].base_url` would grow it without bound for the life
+  of the process.
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
