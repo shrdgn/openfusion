@@ -89,3 +89,13 @@ class OverloadedError(OpenFusionError):
             code="server_overloaded",
             status_code=503,
         )
+
+
+class RequestTimeoutError(OpenFusionError):
+    def __init__(self, message: str = "Request exceeded its total time budget") -> None:
+        super().__init__(
+            message,
+            error_type="timeout_error",
+            code="total_timeout",
+            status_code=504,
+        )
