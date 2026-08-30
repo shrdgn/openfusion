@@ -8,10 +8,10 @@ import hmac
 import json
 import time
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar, cast
 
 from fastapi import Depends, FastAPI, Header, Request
 from fastapi.responses import (
@@ -42,6 +42,7 @@ from openfusion.errors import (
     AuthenticationError,
     InvalidRequestError,
     OpenFusionError,
+    RequestTimeoutError,
     UpstreamError,
 )
 from openfusion.estimate import build_estimate
@@ -67,6 +68,8 @@ from openfusion.stream import (
 )
 from openfusion.tools import tools_are_server_executable
 from openfusion.upstream import UpstreamClient
+
+T = TypeVar("T")
 
 FUSION_MODEL = "openfusion"
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -506,7 +509,7 @@ def create_app(
                         limiter,
                         acquired,
                     )
-                payload = await buffer_pipeline(body, cfg, client)
+                payload = await _with_total_timeout(buffer_pipeline(body, cfg, client), cfg)
                 _record_request("pipeline", "success", started)
                 return _attach_release(JSONResponse(content=payload), limiter, acquired)
 
@@ -571,11 +574,11 @@ def create_app(
                 )
                 return _attach_release(response, limiter, acquired)
             if cfg.aggregator == Aggregator.VOTE:
-                payload = await buffer_vote(body, cfg, client)
+                payload = await _with_total_timeout(buffer_vote(body, cfg, client), cfg)
             elif cfg.aggregator == Aggregator.RANKED:
-                payload = await buffer_ranked(body, cfg, client)
+                payload = await _with_total_timeout(buffer_ranked(body, cfg, client), cfg)
             else:
-                payload = await buffer_synthesis(body, cfg, client)
+                payload = await _with_total_timeout(buffer_synthesis(body, cfg, client), cfg)
             await on_complete(
                 (payload.get("choices") or [{}])[0].get("message", {}).get("content") or "",
                 payload.get("usage"),
@@ -599,6 +602,20 @@ def create_app(
             return _error_response(UpstreamError(str(exc)))
 
     return app
+
+
+async def _with_total_timeout(awaitable: Awaitable[T], config: OpenFusionConfig) -> T:
+    """Bound a non-streaming fusion/pipeline call by ``timeouts.total_seconds``.
+
+    Raises ``RequestTimeoutError`` (504) instead of leaving a stuck request to run
+    unbounded past its documented aggregate deadline.
+    """
+    try:
+        return await asyncio.wait_for(awaitable, timeout=config.timeouts.total_seconds)
+    except TimeoutError as exc:
+        raise RequestTimeoutError(
+            f"Request exceeded its total time budget ({config.timeouts.total_seconds}s)"
+        ) from exc
 
 
 def _routed_pass_through(
@@ -675,22 +692,58 @@ async def _pass_through(
     return JSONResponse(content=result)
 
 
+def _timeout_sse_chunk(total_seconds: float) -> str:
+    return "data: " + json.dumps(
+        {
+            "error": {
+                "message": f"Request exceeded its total time budget ({total_seconds}s)",
+                "type": "timeout_error",
+                "code": "total_timeout",
+            }
+        }
+    ) + "\n\n"
+
+
 async def _stream_with_cancellation(
     request: Request,
     make_lines: Callable[[asyncio.Event], AsyncIterator[str]],
     on_finish: Callable[[str], None],
+    *,
+    total_seconds: float,
 ) -> AsyncIterator[str]:
-    """Watch for client disconnect and report success/error outcome once done.
+    """Watch for client disconnect, forward lines, and enforce ``timeouts.total_seconds``.
 
-    Shared by ``_pipeline_stream`` and ``_fusion_stream``: both need a
-    disconnect-triggered ``cancel_event``, forward its lines until cancelled,
-    and record an outcome in a ``finally`` regardless of how the loop ends.
+    Shared by ``_pipeline_stream`` and ``_fusion_stream``. Disconnect uses the
+    existing cooperative ``cancel_event`` (checked by the streamers between their
+    own chunks/calls). The aggregate deadline instead wraps each pull from
+    ``make_lines`` in ``asyncio.wait_for`` so it can cut off a single upstream
+    call that's still in flight, not just the gaps between chunks — matching
+    ``member_seconds``/``judge_seconds``, which bound calls the same way. On a
+    disconnect there's no client left to tell; on a deadline there is, so a clean
+    SSE error chunk is emitted before the stream closes.
     """
     cancel_event = asyncio.Event()
     task = asyncio.create_task(_watch_disconnect(request, cancel_event))
+    deadline = asyncio.get_running_loop().time() + total_seconds
     outcome = "success"
+    gen = make_lines(cancel_event)
     try:
-        async for line in make_lines(cancel_event):
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                outcome = "error"
+                yield _timeout_sse_chunk(total_seconds)
+                yield "data: [DONE]\n\n"
+                break
+            try:
+                line = await asyncio.wait_for(gen.__anext__(), timeout=remaining)
+            except TimeoutError:
+                outcome = "error"
+                yield _timeout_sse_chunk(total_seconds)
+                yield "data: [DONE]\n\n"
+                break
+            except StopAsyncIteration:
+                break
             if cancel_event.is_set():
                 break
             yield line
@@ -702,6 +755,11 @@ async def _stream_with_cancellation(
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+        with contextlib.suppress(Exception):
+            # `make_lines` callers are always async generator functions; the
+            # `AsyncIterator[str]` param type is intentionally looser, matching
+            # `pipeline_and_stream`/`*_and_stream`'s own declared return type.
+            await cast(AsyncGenerator[str, None], gen).aclose()
         on_finish(outcome)
 
 
@@ -720,6 +778,7 @@ async def _pipeline_stream(
         request,
         lambda cancel_event: pipeline_and_stream(body, config, client, cancel_event=cancel_event),
         on_finish,
+        total_seconds=config.timeouts.total_seconds,
     )
     return StreamingResponse(
         lines,
@@ -752,6 +811,7 @@ async def _fusion_stream(
         request,
         lambda cancel_event: streamer(body, config, client, cancel_event=cancel_event),
         on_finish,
+        total_seconds=config.timeouts.total_seconds,
     )
     if on_complete is not None:
         lines = capture_stream(lines, on_complete)

@@ -263,6 +263,15 @@ class AnalysisConfig(BaseModel):
 
 
 class TimeoutsConfig(BaseModel):
+    """Per-phase and aggregate request deadlines.
+
+    ``member_seconds``/``judge_seconds`` bound each individual upstream call.
+    ``total_seconds`` is an aggregate wall-clock cap on the whole fused/pipeline
+    request (`server.py`'s streaming and non-streaming fusion paths) — a request
+    that's still running once it elapses is cancelled and reported as a clean
+    timeout error rather than left to run unbounded.
+    """
+
     member_seconds: float = Field(default=120.0, gt=0)
     judge_seconds: float = Field(default=180.0, gt=0)
     total_seconds: float = Field(default=300.0, gt=0)

@@ -46,6 +46,18 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- `timeouts.total_seconds` is now enforced as an aggregate wall-clock cap on
+  fused/pipeline requests, not just documented and set in every
+  `examples/*.yaml.example`. Non-streaming requests (`buffer_synthesis`/
+  `buffer_vote`/`buffer_ranked`/`buffer_pipeline`) are wrapped in
+  `asyncio.wait_for`; streaming requests pull each SSE line from the
+  underlying generator the same way, so a single stuck upstream call is cut
+  off, not just the gaps between chunks. A timeout now raises a clean
+  `RequestTimeoutError` (504, `timeout_error`/`total_timeout`) for
+  non-streaming requests, or emits one SSE `error` chunk + `[DONE]` for
+  streaming ones — the client is still connected, unlike on disconnect, where
+  there's no one to tell. `server.py::_stream_with_cancellation` now serves
+  both the disconnect-triggered `cancel_event` and this deadline. Closes #140.
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
