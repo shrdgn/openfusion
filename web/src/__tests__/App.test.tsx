@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
-import type { ActiveConfig, StreamHandlers } from "../lib/api";
+import type { ActiveConfig, Estimate, StreamHandlers } from "../lib/api";
 
 const { getConfig, getEstimate, setApiKey, streamFusion } = vi.hoisted(() => ({
   getConfig: vi.fn(),
@@ -65,6 +65,34 @@ describe("App", () => {
     expect(await screen.findByDisplayValue("openai/gpt-4o")).toBeInTheDocument();
     expect(screen.getByDisplayValue("anthropic/claude-3.5-sonnet")).toBeInTheDocument();
     expect(screen.getByText("Fuse with")).toBeInTheDocument();
+  });
+
+  it("keeps the newer cost estimate when an older request resolves after it", async () => {
+    const user = userEvent.setup();
+    getConfig.mockResolvedValue(baseConfig());
+
+    const deferred: Array<(estimate: Estimate) => void> = [];
+    getEstimate.mockImplementation(
+      () => new Promise<Estimate>((resolve) => deferred.push(resolve)),
+    );
+
+    render(<App />);
+    const prompt = await screen.findByPlaceholderText("Ask anything…");
+
+    await user.type(prompt, "first");
+    await waitFor(() => expect(deferred).toHaveLength(1), { timeout: 2000 });
+
+    await user.clear(prompt);
+    await user.type(prompt, "second");
+    await waitFor(() => expect(deferred).toHaveLength(2), { timeout: 2000 });
+
+    // The newer (second) request resolves first, then the stale first one resolves late.
+    deferred[1]({ calls: 2, models: [], input_tokens: 20, max_output_tokens: 100, cost_usd: null });
+    await waitFor(() => expect(screen.getByText(/≈ 2 calls/)).toBeInTheDocument());
+
+    deferred[0]({ calls: 1, models: [], input_tokens: 10, max_output_tokens: 100, cost_usd: null });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(screen.getByText(/≈ 2 calls/)).toBeInTheDocument();
   });
 
   it("doesn't crash when the config fails to load, and stays usable", async () => {
