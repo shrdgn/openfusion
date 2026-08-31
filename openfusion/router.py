@@ -43,16 +43,20 @@ _CLASSIFY_PROMPT = (
 
 
 def _user_text(body: dict[str, Any]) -> str:
+    """Return the text of the most recent user turn.
+
+    Routing signals (length, keywords, code blocks) judge whether *this* turn is
+    worth fusing, not the conversation so far — concatenating every prior user
+    turn would mean a single long/complex message early in a chat permanently
+    tips every later, trivial follow-up ("thanks") into the full panel.
+    """
     messages = body.get("messages")
     if not isinstance(messages, list):
         return ""
-    parts: list[str] = []
-    for message in messages:
+    for message in reversed(messages):
         if isinstance(message, dict) and message.get("role") == "user":
-            text = message_text(message.get("content"))
-            if text:
-                parts.append(text)
-    return "\n".join(parts)
+            return message_text(message.get("content"))
+    return ""
 
 
 _STRONG_KEYWORDS = (
@@ -228,9 +232,12 @@ async def _classify_route(
     if "FUSE" in text.upper():
         return RouteDecision.FUSE, None
     lowered = text.lower()
-    for candidate in config.route_models:
-        if candidate.model.lower() in lowered:
-            return RouteDecision.SOLO, candidate
+    matches = [candidate for candidate in config.route_models if candidate.model.lower() in lowered]
+    if matches:
+        # Prefer the most specific (longest) id: a shorter candidate's id can be a
+        # substring of another's (e.g. "openai/gpt-4" in "openai/gpt-4-turbo"), so
+        # the first list match isn't necessarily the one the classifier named.
+        return RouteDecision.SOLO, max(matches, key=lambda candidate: len(candidate.model))
     _log.warning("router: classifier response %r matched no model, falling back to heuristic", text)
     _record_fallback()
     return None

@@ -46,6 +46,24 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- The heuristic router (`router.enabled`) no longer judges a request by the
+  entire conversation so far. `router._user_text` collected every prior user
+  turn, so `route()`'s length/keyword checks compounded across a chat — once
+  a long or keyword-laden turn pushed the running total over `min_chars`
+  once, every later trivial follow-up ("thanks") kept getting routed to the
+  full panel. It now looks only at the current turn.
+- The model classifier's route (`router.mode: model` + `route_models`) no
+  longer picks the wrong candidate when one model id is a substring of
+  another (e.g. `openai/gpt-4` vs `openai/gpt-4-turbo`). `_classify_route`
+  matched with an unanchored substring test, so the result depended on
+  `route_models` list order rather than which id the classifier actually
+  named; it now prefers the most specific (longest) matching id.
+- The playground's pre-run cost estimate (`≈ N calls · ~$X`, debounced 500ms
+  after you stop typing) could show a stale figure: two `getEstimate` calls
+  in flight had no ordering guard, so a slower earlier response could
+  resolve after — and overwrite — a newer one. Each debounced call is now
+  tagged with a sequence number and a result is only applied if it's still
+  current.
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a

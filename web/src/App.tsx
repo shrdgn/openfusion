@@ -218,6 +218,7 @@ export default function App() {
   })();
 
   const [estimate, setEstimate] = useState<Estimate | null>(null);
+  const estimateRequestRef = useRef(0);
 
   useEffect(() => {
     getConfig()
@@ -262,9 +263,14 @@ export default function App() {
       };
     }
     const id = setTimeout(() => {
+      const requestId = ++estimateRequestRef.current;
       getEstimate(payload)
-        .then(setEstimate)
-        .catch(() => setEstimate(null));
+        .then((result) => {
+          if (requestId === estimateRequestRef.current) setEstimate(result);
+        })
+        .catch(() => {
+          if (requestId === estimateRequestRef.current) setEstimate(null);
+        });
     }, 500);
     return () => clearTimeout(id);
   }, [prompt, panel, judge, webSearch, maxTokens, allowOverrides, config, turns]);

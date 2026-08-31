@@ -386,6 +386,30 @@ async def test_route_async_falls_back_on_non_dict_payload(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
+async def test_classify_route_prefers_more_specific_model_id(mock_router) -> None:
+    """A classifier reply naming a longer model id shouldn't match a shorter id that
+    happens to be one of its substrings (e.g. 'openai/gpt-4' is a prefix of
+    'openai/gpt-4-turbo'), regardless of which candidate is listed first."""
+    cfg = _model_routes()
+    cfg.route_models = [
+        RouteModel(model="openai/gpt-4", tier=Tier.BALANCED),
+        RouteModel(model="openai/gpt-4-turbo", tier=Tier.STRONG),
+    ]
+    mock_router.post("https://mock.upstream/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200, json={"choices": [{"message": {"content": "openai/gpt-4-turbo"}}]}
+        )
+    )
+    client = UpstreamClient()
+    result = await _classify_route(_body("anything"), cfg, client)
+    assert result is not None
+    decision, model = result
+    assert decision == RouteDecision.SOLO
+    assert model is not None and model.model == "openai/gpt-4-turbo"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
 async def test_classify_route_falls_back_on_non_dict_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -423,3 +447,27 @@ def test_user_text_collects_multimodal_text_blocks() -> None:
         ]
     }
     assert _user_text(body) == "describe this\nin detail"
+
+
+def test_user_text_uses_latest_user_turn_only() -> None:
+    body = {
+        "messages": [
+            {"role": "user", "content": "compare and analyze this in depth " + "x " * 200},
+            {"role": "assistant", "content": "here's my answer"},
+            {"role": "user", "content": "thanks"},
+        ]
+    }
+    assert _user_text(body) == "thanks"
+
+
+def test_route_ignores_earlier_turns_length_and_keywords() -> None:
+    """A long, keyword-laden earlier turn shouldn't force FUSE on a later trivial
+    follow-up — only the current turn's shape should decide."""
+    body = {
+        "messages": [
+            {"role": "user", "content": "compare and analyze this in depth: " + "x " * 200},
+            {"role": "assistant", "content": "here's my answer"},
+            {"role": "user", "content": "thanks"},
+        ]
+    }
+    assert route(body, RouterConfig(enabled=True)) == RouteDecision.SOLO
