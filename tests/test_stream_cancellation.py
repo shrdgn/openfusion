@@ -72,3 +72,27 @@ async def test_records_success_outcome_when_stream_completes() -> None:
 
     assert lines == ["only\n"]
     assert finished == ["success"]
+
+
+async def test_records_error_outcome_from_sse_error_chunk_without_raising() -> None:
+    """The real streamers catch their own failures and yield an SSE error chunk
+    + [DONE] instead of raising (see stream.py's _gather_panel_or_error,
+    synthesize_and_stream, pipeline_and_stream). The outcome must reflect that
+    even though the generator returns normally.
+    """
+
+    async def make_lines(cancel_event):
+        yield 'data: {"choices": [{"delta": {"content": "partial"}}]}\n\n'
+        yield 'data: {"error": {"message": "upstream failed", "type": "upstream_error"}}\n\n'
+        yield "data: [DONE]\n\n"
+
+    finished = []
+    lines = [
+        line
+        async for line in _stream_with_cancellation(
+            _NeverDisconnectsRequest(), make_lines, finished.append
+        )
+    ]
+
+    assert len(lines) == 3
+    assert finished == ["error"]

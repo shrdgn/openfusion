@@ -113,6 +113,15 @@ async def test_anthropic_streaming_yields_converted_chunks(mock_router) -> None:
     assert chunks[0]["usage"]["prompt_tokens"] == 5
     assert chunks[1]["choices"][0]["delta"]["content"] == "hi"
     assert chunks[2]["choices"][0]["finish_reason"] == "stop"
+    # message_delta's usage only carries the completion count (Anthropic
+    # splits usage across message_start/message_delta) -- the prompt count
+    # from message_start must be carried forward instead of reported as 0,
+    # since callers treat the last usage-bearing chunk as authoritative.
+    assert chunks[2]["usage"] == {
+        "prompt_tokens": 5,
+        "completion_tokens": 1,
+        "total_tokens": 6,
+    }
     await client.aclose()
 
 

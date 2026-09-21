@@ -134,6 +134,8 @@ class UpstreamClient:
         started = time.perf_counter()
         status_code: int | None = None
         usage: dict[str, Any] | None = None
+        prompt_tokens = 0
+        completion_tokens = 0
         chunks = 0
         async with self._client.stream(
             "POST", url, headers=headers, json=payload, timeout=timeout
@@ -165,7 +167,23 @@ class UpstreamClient:
                     if chunk is None:
                         continue
                     if "usage" in chunk:
-                        usage = chunk["usage"]
+                        # Anthropic splits usage across two events instead of
+                        # sending one complete snapshot: message_start carries
+                        # the final prompt token count, message_delta carries
+                        # the final (cumulative, not incremental) completion
+                        # token count. Carry the prompt count forward so the
+                        # message_delta chunk - the one every caller treats as
+                        # "the" usage, since it's the last one seen - reports
+                        # the full total instead of zero prompt tokens.
+                        chunk_usage = chunk["usage"]
+                        prompt_tokens = chunk_usage.get("prompt_tokens") or prompt_tokens
+                        completion_tokens = (
+                            chunk_usage.get("completion_tokens") or completion_tokens
+                        )
+                        chunk_usage["prompt_tokens"] = prompt_tokens
+                        chunk_usage["completion_tokens"] = completion_tokens
+                        chunk_usage["total_tokens"] = prompt_tokens + completion_tokens
+                        usage = chunk_usage
                     chunks += 1
                     yield chunk
             finally:

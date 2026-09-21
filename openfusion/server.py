@@ -675,6 +675,28 @@ async def _pass_through(
     return JSONResponse(content=result)
 
 
+def _sse_line_is_error(line: str) -> bool:
+    """True if an SSE line's ``data:`` payload is an ``{"error": ...}`` chunk.
+
+    The streamers in ``stream.py`` (``_gather_panel_or_error``,
+    ``synthesize_and_stream``, ``pipeline_and_stream``, ...) catch their own
+    upstream/panel failures internally and yield an error chunk followed by
+    ``[DONE]`` instead of raising, so ``_stream_with_cancellation`` can't rely
+    on an exception to detect those failures.
+    """
+    data: str | None = None
+    for raw in line.split("\n"):
+        if raw.startswith("data:"):
+            data = raw[5:].strip()
+    if not data or data == "[DONE]":
+        return False
+    try:
+        obj = json.loads(data)
+    except json.JSONDecodeError:
+        return False
+    return isinstance(obj, dict) and "error" in obj
+
+
 async def _stream_with_cancellation(
     request: Request,
     make_lines: Callable[[asyncio.Event], AsyncIterator[str]],
@@ -685,6 +707,9 @@ async def _stream_with_cancellation(
     Shared by ``_pipeline_stream`` and ``_fusion_stream``: both need a
     disconnect-triggered ``cancel_event``, forward its lines until cancelled,
     and record an outcome in a ``finally`` regardless of how the loop ends.
+    An SSE error chunk also marks the outcome as an error, since the
+    streamers swallow their own exceptions and return normally after
+    emitting one (see ``_sse_line_is_error``).
     """
     cancel_event = asyncio.Event()
     task = asyncio.create_task(_watch_disconnect(request, cancel_event))
@@ -693,6 +718,8 @@ async def _stream_with_cancellation(
         async for line in make_lines(cancel_event):
             if cancel_event.is_set():
                 break
+            if _sse_line_is_error(line):
+                outcome = "error"
             yield line
     except Exception:
         outcome = "error"
