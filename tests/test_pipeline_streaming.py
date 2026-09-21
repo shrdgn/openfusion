@@ -211,11 +211,10 @@ async def test_pipeline_stream_upstream_failure_degrades_to_sse_error_chunk(
 
     assert '"code": "pipeline_stream_error"' in body
     assert body.rstrip().endswith("data: [DONE]")
-    # No exception escaped event_stream(), so the outcome is "success" -- the
-    # same (imperfect but established) semantics as _fusion_stream, where an
-    # SSE-level error chunk from a caught panel/judge failure isn't visible to
-    # _record_request either.
-    assert recorded == [("pipeline", "success")]
+    # No exception escaped event_stream(), but _stream_with_cancellation still
+    # detects the SSE error chunk and records "error" -- the outcome reflects
+    # what the client actually saw, not just whether an exception propagated.
+    assert recorded == [("pipeline", "error")]
 
 
 async def test_pipeline_stream_stops_on_cancel_event(mock_router) -> None:
