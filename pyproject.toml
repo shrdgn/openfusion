@@ -22,24 +22,24 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
-    "fastapi>=0.115.0",
-    "httpx>=0.28.0",
-    "pydantic>=2.10.0",
-    "pydantic-settings>=2.6.0",
-    "pyyaml>=6.0.2",
-    "rich>=13.0.0",
-    "uvicorn[standard]>=0.32.0",
+    "fastapi>=0.162.0",
+    "httpx>=0.28.1",
+    "pydantic>=2.14.2",
+    "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
+    "rich>=15.0.0",
+    "uvicorn[standard]>=0.54.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "mypy>=1.0.0",
-    "pytest>=8.3.0",
-    "pytest-asyncio>=0.24.0",
-    "pytest-cov>=6.0.0",
-    "pytest-timeout>=2.3.0",
-    "respx>=0.22.0",
-    "ruff>=0.8.0",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.4.1",
+    "pytest-cov>=7.1.0",
+    "pytest-timeout>=2.4.0",
+    "respx>=0.23.1",
+    "ruff>=0.17.3",
 ]
 
 [project.scripts]
