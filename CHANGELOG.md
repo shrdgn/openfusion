@@ -46,6 +46,15 @@ to follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and routes the rest. See `examples/route.yaml.example` and `ROADMAP.md`.
 
 ### Fixed
+- **Vote split agreeing members over number formatting** — `strategy: vote`'s answer key compared
+  extracted numbers as raw strings, so `"18"` and `"18.0"` counted as different answers (while
+  the bench harness scored them as equal). Keys are now canonicalized numerically, and a hyphen
+  right after a digit (`"5-7"`, `"2024-03-15"`) is no longer read as a minus sign
+  (`vote.py::answer_key`).
+- **Rate limiter rescanned every key on each window rollover** — `RequestLimiter.check_rate`
+  rebuilt its whole per-key table (up to 10k entries) whenever a key's window rolled over, making
+  it O(keys) per request; with 10k active keys, 10k rollovers took ~22s of event-loop time. It
+  now pops expired entries from the LRU front (amortized O(1); same workload ~15ms).
 - The playground no longer lets a stream still running in the background bleed
   its output into whatever conversation is on screen after you switch away from
   it mid-response. `App.tsx`'s `run()` now tags each in-flight request with a
