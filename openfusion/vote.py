@@ -10,11 +10,32 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from openfusion.panel import PanelResult
 
-_NUMBER_RE = re.compile(r"-?\$?\d[\d,]*(?:\.\d+)?")
+# The lookbehind keeps a hyphen that directly follows a digit (a range like
+# "5-7" or a date like "2024-03-15") from being read as a minus sign.
+_NUMBER_RE = re.compile(r"(?<![\d.])-?\$?\d[\d,]*(?:\.\d+)?")
+
+
+def _canonical_number(raw: str) -> str:
+    """Canonicalize a matched number so equal values produce equal keys.
+
+    ``"42"``, ``"42.0"`` and ``"42.00"`` all become ``"42"``; ``"-0"`` becomes
+    ``"0"``. Mirrors the float comparison the bench harness scores with, so the
+    vote doesn't split agreeing members over formatting.
+    """
+    cleaned = raw.replace("$", "").replace(",", "")
+    try:
+        value = Decimal(cleaned)
+    except InvalidOperation:
+        return cleaned
+    if value == 0:
+        return "0"
+    # ``normalize`` strips trailing zeros; ``:f`` avoids exponent form ("1E+1").
+    return f"{value.normalize():f}"
 
 
 def answer_key(text: str) -> str:
@@ -25,7 +46,7 @@ def answer_key(text: str) -> str:
     """
     numbers = _NUMBER_RE.findall(text)
     if numbers:
-        return numbers[-1].replace("$", "").replace(",", "")
+        return _canonical_number(numbers[-1])
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     return lines[-1].lower() if lines else ""
 
