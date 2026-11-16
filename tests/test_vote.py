@@ -22,6 +22,27 @@ def test_answer_key_prefers_last_number() -> None:
     assert answer_key("The total is $1,200.") == "1200"
 
 
+def test_answer_key_canonicalizes_equal_numbers() -> None:
+    assert answer_key("The answer is 42.0") == "42"
+    assert answer_key("The answer is 42.00") == "42"
+    assert answer_key("The answer is 42") == "42"
+    assert answer_key("about 3.50 dollars") == "3.5"
+    assert answer_key("exactly 100") == "100"  # no "1E+2"
+    assert answer_key("it is -0.0") == "0"
+    assert answer_key("x = -5") == "-5"
+
+
+def test_answer_key_does_not_read_hyphen_as_minus_sign() -> None:
+    assert answer_key("somewhere between 5-7") == "7"
+    assert answer_key("Deadline 2024-03-15") == "15"
+
+
+def test_majority_vote_agrees_across_number_formatting() -> None:
+    _, meta = majority_vote(_panel("answer: 18", "answer: 18.0", "answer: 20"))
+    assert meta["winner"] == "18"
+    assert meta["agreement"] == 2 / 3
+
+
 def test_answer_key_falls_back_to_last_line() -> None:
     assert answer_key("Reasoning here\nyes") == "yes"
     assert answer_key("") == ""

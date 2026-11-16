@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections import OrderedDict
 
 import httpx
 import pytest
@@ -36,12 +37,30 @@ def test_rate_window_prunes_stale_entries() -> None:
     assert len(limiter._window) == 50
     # Backdate all entries past the sliding window's two-window carry-over
     # horizon so they appear fully expired.
-    limiter._window = {
-        k: (v[0], v[1], v[2] - 130.0) for k, v in limiter._window.items()
-    }
+    limiter._window = OrderedDict(
+        (k, (v[0], v[1], v[2] - 130.0)) for k, v in limiter._window.items()
+    )
     # Re-checking an expired key triggers pruning of all other expired entries.
     limiter.check_rate("key-0")
     assert len(limiter._window) == 1
+
+
+def test_rate_window_prune_stops_at_first_live_entry(monkeypatch) -> None:
+    """Pruning pops expired entries from the LRU front and stops at a live one,
+    rather than rescanning every key on each window rollover."""
+    import openfusion.limits as limits_mod
+
+    clock = [1000.0]
+    monkeypatch.setattr(limits_mod.time, "monotonic", lambda: clock[0])
+    limiter = RequestLimiter(LimitsConfig(rate_limit_per_minute=100))
+    for i in range(5):
+        limiter.check_rate(f"old-{i}")
+    clock[0] += 100.0
+    limiter.check_rate("live")
+    clock[0] += 30.0  # old-* now 130s stale; "live" only 30s old
+    # Re-checking an expired key rolls its window and triggers the prune.
+    limiter.check_rate("old-0")
+    assert list(limiter._window) == ["live", "old-0"]
 
 
 def test_rate_limit_sliding_window_blends_previous_window() -> None:

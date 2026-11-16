@@ -55,18 +55,31 @@ class RequestLimiter:
             else:
                 prev_count, curr_count, start = curr_count, 0, start + 60.0
             elapsed = now - start
-            # Prune entries whose windows are both fully expired to prevent
-            # unbounded memory growth when many unique keys (e.g. rotating
-            # Bearer tokens) hit a long-lived server.
-            self._window = OrderedDict(
-                (k, v) for k, v in self._window.items() if now - v[2] < 120.0
-            )
+            self._prune_expired(now)
         weight = max(0.0, 1.0 - elapsed / 60.0)
         if curr_count + prev_count * weight >= self._rpm:
             raise RateLimitError()
         self._window[key] = (prev_count, curr_count + 1, start)
         self._window.move_to_end(key)
         while len(self._window) > _WINDOW_MAX_KEYS:
+            self._window.popitem(last=False)
+
+    def _prune_expired(self, now: float) -> None:
+        """Drop fully expired entries from the least-recently-used end.
+
+        Prevents unbounded memory growth when many unique keys (e.g. rotating
+        Bearer tokens) hit a long-lived server. ``_window`` is kept in
+        last-access order and an entry's window start always lies within 60s
+        of its last access, so expired entries cluster at the front: popping
+        from the front until a live entry is found is amortized O(1), instead
+        of rebuilding the whole dict (O(keys)) on every window rollover. A
+        stray expired entry left behind a live one is harmless -- reading it
+        resets it, and ``_WINDOW_MAX_KEYS`` still bounds the total.
+        """
+        while self._window:
+            _, (_, _, start) = next(iter(self._window.items()))
+            if now - start < 120.0:
+                break
             self._window.popitem(last=False)
 
     def acquire(self) -> bool:
